@@ -89,6 +89,11 @@
         packages.default = firmware;
         packages.wokwi-cli = wokwi-cli;
 
+        # `nix run` → launches wokwi-cli; also `nix shell .#wokwi-cli` or the
+        # dev shell below all expose it on PATH.
+        apps.default = { type = "app"; program = "${wokwi-cli}/bin/wokwi-cli"; };
+        apps.wokwi-cli = apps.default;
+
         devShells.default = pkgs.mkShell {
           name = "pico-ledger-dev";
           packages = [
