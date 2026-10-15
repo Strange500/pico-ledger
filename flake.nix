@@ -118,7 +118,7 @@
             echo "  build:   cargo build"
             echo "  flash:   probe-rs run --chip RP2040   (or probe-rs download ...)"
             echo "  sim:     wokwi-cli"
-            rustc --version 2>/dev/null && cargo --version 2>/dev/null && wokwi-cli --version 2>/dev/null
+            rustc --version 2>/dev/null && cargo --version 2>/dev/null
           '';
         };
       }

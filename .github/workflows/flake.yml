@@ -56,7 +56,7 @@ jobs:
               command -v "$t" >/dev/null && echo "  ok: $t -> $(command -v "$t")" || { echo "  MISSING: $t"; exit 1; }
             done
             echo "== versions =="
-            wokwi-cli --version
+            cargo --version
             echo "== cargo build (dev shell) =="
             cargo build --release
             test -f target/thumbv6m-none-eabi/release/pico-ledger && echo "  ok: firmware built"
