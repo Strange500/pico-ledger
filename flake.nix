@@ -25,7 +25,7 @@
         # wokwi-cli is NOT packaged in nixpkgs; it ships as a single static
         # binary per platform. Package the official GitHub release directly.
         # Hashes pinned for v0.28.1 (see https://github.com/wokwi/wokwi-cli/releases).
-        wokwi-cli = pkgs.stdenv.mkDerivation {
+        wokwi-cli = pkgs.stdenv.mkDerivation rec {
           pname = "wokwi-cli";
           version = "0.28.1";
           src = pkgs.fetchurl rec {
