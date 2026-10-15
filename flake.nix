@@ -76,6 +76,8 @@
           };
           nativeBuildInputs = [ toolchain pkgs.flip-link ];
           buildPhase = ''
+            # Nix builds run with an unwritable HOME; give cargo a writable home.
+            export CARGO_HOME="$(pwd)/.cargo-home"
             cargo build --release --target thumbv6m-none-eabi
           '';
           installPhase = ''
