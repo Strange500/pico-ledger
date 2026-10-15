@@ -1,0 +1,72 @@
+name: Nix Flake
+
+on:
+  push:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+      - '.cargo/**'
+      - '.github/workflows/flake.yml'
+  pull_request:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+      - '.cargo/**'
+      - '.github/workflows/flake.yml'
+
+env:
+  # `nix build ./#default` fetches crates from crates.io inside the build sandbox,
+  # which is blocked by default — the GH runner is already isolated, so disable it.
+  NIX_CONFIG: "sandbox = false"
+
+jobs:
+  flake:
+    name: Validate flake (check + build + dev shell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v14
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/flakehub-cache-action@v2
+
+      - name: Evaluate flake outputs
+        run: nix flake check
+
+      - name: Build firmware via Nix (.elf)
+        run: nix build .#default
+
+      - name: Build wokwi-cli package
+        run: nix build .#wokwi-cli
+
+      - name: Dev shell smoke test (tools on PATH + cargo build)
+        run: |
+          nix develop -c bash -c '
+            set -euo pipefail
+            echo "== tools on PATH =="
+            for t in cargo rustc flip-link probe-rs wokwi-cli; do
+              command -v "$t" >/dev/null && echo "  ok: $t -> $(command -v "$t")" || { echo "  MISSING: $t"; exit 1; }
+            done
+            echo "== versions =="
+            cargo --version
+            echo "== cargo build (dev shell) =="
+            cargo build --release
+            test -f target/thumbv6m-none-eabi/release/pico-ledger && echo "  ok: firmware built"
+          '
+
+      # Capture the dependency lockfile generated during evaluation so it can be
+      # committed (available as an artifact on passing CI).
+      - name: Upload flake.lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: flake-lock
+          path: flake.lock
+          if-no-files-found: ignore

@@ -48,19 +48,31 @@ Hold the Pico's BOOTSEL button while plugging it in, then either:
 
 ## Nix development environment
 
-A reproducible dev shell is provided (`flake.nix`), with the
-`thumbv6m-none-eabi` target, `flip-link`, and `probe-rs` pre-installed:
+A flake (`flake.nix`) provides a reproducible dev shell with the `thumbv6m-none-eabi`
+target, `flip-link`, `probe-rs`, and `wokwi-cli` pre-installed:
 
 ```bash
 nix develop
 cargo build
 ```
 
-Or use the flake's shell directly:
+The flake also exposes reproducible builds:
 
 ```bash
-nix develop .#default --command cargo build
+nix build .#default      # firmware → result/bin/pico-ledger.elf
+nix build .#wokwi-cli    # the wokwi-cli binary (also included in the dev shell)
 ```
+
+> `nix build` fetches crates from crates.io, which the default sandbox blocks;
+> run it with `--impure` or `NIX_CONFIG="sandbox = false"` (CI does the latter).
+> For day-to-day work, prefer `nix develop -c cargo build`.
+
+`wokwi-cli` is not packaged in nixpkgs, so the flake packages the official
+static binary from GitHub releases (sha256-pinned per platform).
+
+CI (`.github/workflows/flake.yml`) installs Nix and verifies the flake:
+`nix flake check`, builds `.#default` and `.#wokwi-cli`, and smoke-tests the
+dev shell (`tools on PATH` + `cargo build`).
 
 > Note: `Cargo.lock` is committed so builds are reproducible across machines
 > and through the Nix dev shell.
