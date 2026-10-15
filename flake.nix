@@ -92,7 +92,7 @@
         # `nix run` → launches wokwi-cli; also `nix shell .#wokwi-cli` or the
         # dev shell below all expose it on PATH.
         apps.default = { type = "app"; program = "${wokwi-cli}/bin/wokwi-cli"; };
-        apps.wokwi-cli = apps.default;
+        apps.wokwi-cli = { type = "app"; program = "${wokwi-cli}/bin/wokwi-cli"; };
 
         devShells.default = pkgs.mkShell {
           name = "pico-ledger-dev";
