@@ -108,8 +108,8 @@
             wokwi-cli
           ];
 
-          # Same target forced in a normal cargo build (not just via .cargo/config).
-          RUSTFLAGS = "-D warnings";
+          # The `.cargo/config.toml` supplies the linker + memory layout link-args;
+          # do NOT set RUSTFLAGS here — it overrides them and breaks flip-link.
           CARGO_BUILD_TARGET = "thumbv6m-none-eabi";
 
           shellHook = ''
