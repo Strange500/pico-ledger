@@ -28,21 +28,24 @@
         wokwi-cli = pkgs.stdenv.mkDerivation rec {
           pname = "wokwi-cli";
           version = "0.28.1";
-          src = pkgs.fetchurl rec {
-            asset = {
-              x86_64-linux = "wokwi-cli-linuxstatic-x64";
-              aarch64-linux = "wokwi-cli-linuxstatic-arm64";
-              x86_64-darwin = "wokwi-cli-macos-x64";
-              aarch64-darwin = "wokwi-cli-macos-arm64";
-            }.${system};
-            url = "https://github.com/wokwi/wokwi-cli/releases/download/v${version}/${asset}";
-            sha256 = {
-              x86_64-linux = "869f194ee473257c6112ed58d786376527769020056320b0a49a37d9e7d3bdd7";
-              aarch64-linux = "2aa99971f7b1bcadce3f42a0cc0b088c4faabc2d052f7c830008560c3f1dfe4c";
-              x86_64-darwin = "e47e93402157f21328af7cd6b23d1077be9fb86523ef2326bcd1670a58b809db";
-              aarch64-darwin = "022e89a1539db9a25f9d0df2d9d44bde941b8a677aaf697f01533f0fd2e171e5";
-            }.${system};
-          };
+          src =
+            let
+              asset = {
+                x86_64-linux = "wokwi-cli-linuxstatic-x64";
+                aarch64-linux = "wokwi-cli-linuxstatic-arm64";
+                x86_64-darwin = "wokwi-cli-macos-x64";
+                aarch64-darwin = "wokwi-cli-macos-arm64";
+              }.${system};
+            in
+            pkgs.fetchurl {
+              url = "https://github.com/wokwi/wokwi-cli/releases/download/v${version}/${asset}";
+              sha256 = {
+                x86_64-linux = "869f194ee473257c6112ed58d786376527769020056320b0a49a37d9e7d3bdd7";
+                aarch64-linux = "2aa99971f7b1bcadce3f42a0cc0b088c4faabc2d052f7c830008560c3f1dfe4c";
+                x86_64-darwin = "e47e93402157f21328af7cd6b23d1077be9fb86523ef2326bcd1670a58b809db";
+                aarch64-darwin = "022e89a1539db9a25f9d0df2d9d44bde941b8a677aaf697f01533f0fd2e171e5";
+              }.${system};
+            };
           dontUnpack = true;
           installPhase = ''
             install -Dm755 "$src" "$out/bin/wokwi-cli"
