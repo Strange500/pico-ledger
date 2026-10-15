@@ -104,7 +104,7 @@
           packages = [
             toolchain
             pkgs.flip-link
-            pkgs.probe-rs
+            pkgs.probe-rs-tools
             pkgs.llvm-tools
             wokwi-cli
           ];
