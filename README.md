@@ -49,7 +49,7 @@ Hold the Pico's BOOTSEL button while plugging it in, then either:
 ## Nix development environment
 
 A flake (`flake.nix`) provides a reproducible dev shell with the `thumbv6m-none-eabi`
-target, `flip-link`, `probe-rs`, `llvm-tools`, and `wokwi-cli` pre-installed:
+target, `flip-link`, `probe-rs`, and `wokwi-cli` pre-installed:
 
 ```bash
 nix develop
