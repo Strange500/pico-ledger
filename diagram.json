@@ -4,12 +4,15 @@
   "editor": "wokwi",
   "parts": [
     { "type": "wokwi-pi-pico", "id": "pico", "top": 0, "left": 0, "attrs": {} },
-    { "type": "board-ssd1306", "id": "oled", "top": -80, "left": 120, "attrs": {} }
+    { "type": "board-ssd1306", "id": "oled", "top": -80, "left": 120, "attrs": {} },
+    { "type": "wokwi-pushbutton", "id": "button", "top": 80, "left": 0, "attrs": {} }
   ],
   "connections": [
     [ "pico:GND.1", "oled:GND", "black", [ "h0" ] ],
     [ "pico:3V3",   "oled:VCC", "red",   [ "h0" ] ],
     [ "pico:GP4",   "oled:SDA", "blue",  [ "h0" ] ],
-    [ "pico:GP5",   "oled:SCL", "green", [ "h0" ] ]
+    [ "pico:GP5",   "oled:SCL", "green", [ "h0" ] ],
+    [ "button:1.l", "pico:GP2", "orange", [ "h0" ] ],
+    [ "button:2.r", "pico:GND.2", "black", [ "h0" ] ]
   ]
 }
