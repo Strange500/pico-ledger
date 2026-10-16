@@ -27,15 +27,23 @@ static CLICK_COUNT: Mutex<CriticalSectionRawMutex, Cell<u32>> = Mutex::new(Cell:
 #[embassy_executor::task]
 async fn button_task(mut button: Input<'static>, mut led: Output<'static>) {
     loop {
-        // Suspends until GP2 generates a falling edge (button press)
+        // 1. Wait for button press (falling edge)
         button.wait_for_falling_edge().await;
 
+        // Register the click
         led.toggle();
         CLICK_COUNT.lock(|count| {
             count.set(count.get() + 1);
         });
-        // Non-blocking debounce delay
-        Timer::after_millis(50).await;
+
+        // 2. Debounce press contact bounce
+        Timer::after_millis(30).await;
+
+        // 3. Wait until the button is released
+        button.wait_for_high().await;
+
+        // 4. Debounce release contact bounce
+        Timer::after_millis(30).await;
     }
 }
 #[embassy_executor::main]
@@ -44,7 +52,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     // 2. Configure Button on GP2 with internal pull-up
-    let mut button = Input::new(p.PIN_2, Pull::Up);
+    let button = Input::new(p.PIN_2, Pull::Up);
 
     // 3. Configure I2C0 for SSD1306 (GP4 = SDA, GP5 = SCL)
     let i2c = I2c::new_blocking(p.I2C0, p.PIN_5, p.PIN_4, I2cConfig::default());
