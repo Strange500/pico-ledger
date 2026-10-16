@@ -1,80 +1,91 @@
-//! Blinks the LED and displays text on an SSD1306 OLED screen via I2C.
 #![no_std]
 #![no_main]
 
-use bsp::entry;
-use defmt::*;
-use defmt_rtt as _;
-use embedded_hal::digital::{InputPin, OutputPin};
-use panic_probe as _;
+use core::cell::Cell;
 
-// Import embedded-graphics and SSD1306 drivers
+use defmt_rtt as _;
+use embassy_executor::Spawner;
+use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::i2c::{Config as I2cConfig, I2c};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_time::Timer;
+use heapless::String;
+use panic_halt as _;
+
+use core::fmt::Write;
 use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
+    
     text::Text,
 };
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
+static CLICK_COUNT: Mutex<CriticalSectionRawMutex, Cell<u32>> = Mutex::new(Cell::new(0));
 
-use bsp::hal::{
-    clocks::{init_clocks_and_plls, Clock},
-    fugit::RateExtU32,
-    gpio::FunctionI2C,
-    pac,
-    sio::Sio,
-    watchdog::Watchdog,
-    I2C,
-};
-use rp_pico as bsp;
-use rp_pico::hal;
-#[entry]
-fn main() -> ! {
-    info!("Program start");
-    let mut pac = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
-    let mut watchdog = Watchdog::new(pac.WATCHDOG);
-
-    let clocks = hal::clocks::init_clocks_and_plls(
-        rp_pico::XOSC_CRYSTAL_FREQ,
-        pac.XOSC,
-        pac.CLOCKS,
-        pac.PLL_SYS,
-        pac.PLL_USB,
-        &mut pac.RESETS,
-        &mut watchdog,
-    )
-    .ok()
-    .unwrap();
-
-    // The delay object lets us wait for specified amounts of time (in
-    // milliseconds)
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
-
-    // The single-cycle I/O block controls our GPIO pins
-    let sio = hal::Sio::new(pac.SIO);
-    let pins = rp_pico::Pins::new(
-        pac.IO_BANK0,
-        pac.PADS_BANK0,
-        sio.gpio_bank0,
-        &mut pac.RESETS,
-    );
-
-    let mut led_pin = pins.led.into_push_pull_output();
-    let mut btn = pins.gpio2.into_pull_up_input();
-    let mut toggle_status = false;
-    let mut was_pressed = false;
+#[embassy_executor::task]
+async fn button_task(mut button: Input<'static>, mut led: Output<'static>) {
     loop {
-        let is_pressed = btn.is_low().unwrap();
-        if is_pressed && !was_pressed {
-            toggle_status = !toggle_status;
-        }
-        if toggle_status {
-            led_pin.set_high().unwrap();
-        } else {
-            led_pin.set_low().unwrap();
-        }
-        delay.delay_ms(50u32); // Debounce delay
-        was_pressed = is_pressed;
+        // Suspends until GP2 generates a falling edge (button press)
+        button.wait_for_falling_edge().await;
+
+        led.toggle();
+        CLICK_COUNT.lock(|count| {
+            count.set(count.get() + 1);
+        });
+        // Non-blocking debounce delay
+        Timer::after_millis(50).await;
+    }
+}
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    // 1. Initialize chip clocks, PLLs, and watchdog in one call
+    let p = embassy_rp::init(Default::default());
+
+    // 2. Configure Button on GP2 with internal pull-up
+    let mut button = Input::new(p.PIN_2, Pull::Up);
+
+    // 3. Configure I2C0 for SSD1306 (GP4 = SDA, GP5 = SCL)
+    let i2c = I2c::new_blocking(p.I2C0, p.PIN_5, p.PIN_4, I2cConfig::default());
+    let interface = I2CDisplayInterface::new(i2c);
+    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+        .into_buffered_graphics_mode();
+    display.init().unwrap();
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(BinaryColor::On)
+        .build();
+
+    // Initial render
+    display.clear_buffer();
+    Text::new("Ledger Ready", Point::new(10, 20), text_style)
+        .draw(&mut display)
+        .unwrap();
+    display.flush().unwrap();
+
+    let led = Output::new(p.PIN_25, Level::Low);
+
+    spawner.spawn(button_task(button, led).unwrap());
+
+    // 4. Async Event Loop
+    loop {
+        // Read the atomic counter
+        let count = CLICK_COUNT.lock(|click| click.get());
+
+        // Format into a fixed-size stack buffer
+        let mut text: String<32> = String::new();
+        write!(&mut text, "Click Count: {}", count).unwrap();
+
+        // Update the screen
+        display.clear_buffer();
+        Text::new(&text, Point::new(10, 20), text_style)
+            .draw(&mut display)
+            .unwrap();
+        display.flush().unwrap();
+
+        // Screen refresh interval
+        Timer::after_millis(200).await;
     }
 }
