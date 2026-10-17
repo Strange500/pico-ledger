@@ -1,20 +1,19 @@
 # pico-ledger
 
-Raspberry Pi Pico (RP2040, ARM Cortex-M0+) bare-metal firmware in Rust.
-Generated from the [rp2040-project-template](https://github.com/rp-rs/rp2040-project-template).
-Stock template blinks the on-board LED on GP25 via `defmt` logging over RTT.
+Raspberry Pi Pico 2 W (RP2350, ARM Cortex-M33) bare-metal firmware in Rust.
+Blinks the on-board CYW43 LED via Embassy async tasks.
 
 ## Prerequisites (plain Rust)
 
 ```bash
-# Cortex-M0+ target
-rustup target add thumbv6m-none-eabi
+# Cortex-M33 target (hard-float ABI)
+rustup target add thumbv8m.main-none-eabihf
 
-# Linker used by rp-hal for stack-clobber-free placement across RAM banks
+# Linker used by rp-hal / embassy for stack-clobber-free placement across RAM banks
 cargo install flip-link
 
 # Optional: flashing / debugging over SWD
-cargo install probe-rs --features cli
+cargo install probe-rs-tools
 ```
 
 ## Build
@@ -27,28 +26,40 @@ cargo build --release          # optimized (LTO)
 The raw firmware is an ELF at:
 
 ```
-target/thumbv6m-none-eabi/{debug,release}/pico-ledger
+target/thumbv8m.main-none-eabihf/{debug,release}/pico-ledger
 ```
 
 ## Flash & run
 
-Hold the Pico's BOOTSEL button while plugging it in, then either:
+Hold the Pico 2's BOOTSEL button while plugging it in, then either:
+
+- **Automated Flashing via Nix (Recommended)**:
+  With the Pico 2 connected in BOOTSEL mode:
+
+  ```bash
+  # Inside nix develop:
+  flash-pico
+
+  # Or directly from any shell:
+  nix run .#flash
+  ```
+
+  This automatically compiles the release binary, converts it to RP2350 UF2 using `picotool`, verifies/mounts the `RP2350` drive, and copies the UF2 to flash the device.
 
 - **probe-rs** over SWD (needs a debug probe):
   ```bash
-  probe-rs download --chip RP2040 target/thumbv6m-none-eabi/release/pico-ledger
-  probe-rs run --chip RP2040 target/thumbv6m-none-eabi/release/pico-ledger
+  probe-rs download --chip RP235x target/thumbv8m.main-none-eabihf/release/pico-ledger
+  probe-rs run --chip RP235x target/thumbv8m.main-none-eabihf/release/pico-ledger
   ```
-- **`.uf2`** (drag & drop onto the mass-storage drive):
+- **Manual `.uf2` copy**:
   ```bash
-  cargo install elf2uf2-rs
-  elf2uf2-rs target/thumbv6m-none-eabi/release/pico-ledger
+  picotool uf2 convert -t elf target/thumbv8m.main-none-eabihf/release/pico-ledger pico-ledger.uf2 --family rp2350-arm-s
   ```
-  Drop the produced `.uf2` onto the `RPI-RP2` mount point.
+  Drop the produced `.uf2` onto the `RP2350` mount point.
 
 ## Nix development environment
 
-A flake (`flake.nix`) provides a reproducible dev shell with the `thumbv6m-none-eabi`
+A flake (`flake.nix`) provides a reproducible dev shell with the `thumbv8m.main-none-eabihf`
 target, `flip-link`, `probe-rs`, and `wokwi-cli` pre-installed:
 
 ```bash

@@ -52,14 +52,14 @@ jobs:
           nix develop -c bash -c '
             set -euo pipefail
             echo "== tools on PATH =="
-            for t in cargo rustc flip-link probe-rs wokwi-cli; do
+            for t in cargo rustc flip-link probe-rs picotool wokwi-cli; do
               command -v "$t" >/dev/null && echo "  ok: $t -> $(command -v "$t")" || { echo "  MISSING: $t"; exit 1; }
             done
             echo "== versions =="
             cargo --version
             echo "== cargo build (dev shell) =="
             cargo build --release
-            test -f target/thumbv6m-none-eabi/release/pico-ledger && echo "  ok: firmware built"
+            test -f target/thumbv8m.main-none-eabihf/release/pico-ledger && echo "  ok: firmware built"
           '
 
       # Capture the dependency lockfile generated during evaluation so it can be

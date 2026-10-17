@@ -1,9 +1,9 @@
 {
-  description = "pico-ledger — RP2040 (Pi Pico) Rust embedded development environment";
+  description = "pico-ledger — RP2350 (Pi Pico 2) Rust embedded development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    # Provides rustc/cargo with the thumbv6m-none-eabi cross target bundled.
+    # Provides rustc/cargo with the thumbv8m.main-none-eabihf cross target bundled.
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
@@ -17,9 +17,9 @@
           overlays = [ rust-overlay.overlays.default ];
         };
 
-        # Stable Rust with the Pi Pico (Cortex-M0+) target installed.
+        # Stable Rust with the Pi Pico 2 (Cortex-M33) target installed.
         toolchain = pkgs.rust-bin.stable.latest.default.override {
-          targets = [ "thumbv6m-none-eabi" ];
+          targets = [ "thumbv8m.main-none-eabihf" ];
         };
 
         # wokwi-cli is NOT packaged in nixpkgs; it ships as a single static
@@ -59,7 +59,7 @@
         };
 
         # Firmware built through Nix. `.cargo/config.toml` supplies the
-        # thumbv6m-none-eabi target + flip-link linker, so a plain
+        # thumbv8m.main-none-eabihf target + flip-link linker, so a plain
         # `cargo build --release` suffices.
         #
         # NOTE: building fetches crates from crates.io, which is unreachable
@@ -79,25 +79,62 @@
           buildPhase = ''
             # Nix builds run with an unwritable HOME; give cargo a writable home.
             export CARGO_HOME="$(pwd)/.cargo-home"
-            cargo build --release --target thumbv6m-none-eabi
+            cargo build --release --target thumbv8m.main-none-eabihf
           '';
           installPhase = ''
             mkdir -p "$out/bin"
-            cp target/thumbv6m-none-eabi/release/pico-ledger "$out/bin/pico-ledger.elf"
+            cp target/thumbv8m.main-none-eabihf/release/pico-ledger "$out/bin/pico-ledger.elf"
           '';
           meta = {
-            description = "pico-ledger RP2040 firmware (ELF)";
+            description = "pico-ledger RP2350 firmware (ELF)";
             platforms = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
           };
         };
+        flash-script = pkgs.writeShellScriptBin "flash-pico" ''
+          set -euo pipefail
+          export PATH="${pkgs.lib.makeBinPath [ toolchain pkgs.flip-link pkgs.picotool pkgs.util-linux pkgs.coreutils ]}:$PATH"
+
+          echo "== 1. Building release firmware =="
+          cargo build --release --target thumbv8m.main-none-eabihf
+
+          echo "== 2. Converting ELF to RP2350 UF2 =="
+          picotool uf2 convert -t elf target/thumbv8m.main-none-eabihf/release/pico-ledger pico-ledger.uf2 --family rp2350-arm-s
+
+          echo "== 3. Locating RP2350 device =="
+          MOUNT_POINT=$(findmnt -rn -o TARGET -S LABEL=RP2350 2>/dev/null || true)
+          if [ -z "$MOUNT_POINT" ]; then
+            if [ ! -e "/dev/disk/by-label/RP2350" ]; then
+              echo "Error: RP2350 device not found in BOOTSEL mode." >&2
+              echo "Please connect your Raspberry Pi Pico 2 while holding down the BOOTSEL button." >&2
+              exit 1
+            fi
+            echo "Mounting RP2350 volume..."
+            UDISKSCTL=$(command -v udisksctl || echo "${pkgs.udisks2}/bin/udisksctl")
+            "$UDISKSCTL" mount -b /dev/disk/by-label/RP2350 >/dev/null
+            MOUNT_POINT=$(findmnt -rn -o TARGET -S LABEL=RP2350 2>/dev/null || true)
+          fi
+
+          if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT" ]; then
+            echo "Error: Failed to determine mount point for RP2350." >&2
+            exit 1
+          fi
+
+          echo "Mounted at: $MOUNT_POINT"
+          echo "== 4. Copying UF2 firmware to Pico 2 =="
+          cp pico-ledger.uf2 "$MOUNT_POINT/"
+          sync
+
+          echo "Success! The Pico 2 is now flashing and rebooting."
+        '';
       in
       {
         packages.default = firmware;
         packages.wokwi-cli = wokwi-cli;
+        packages.flash-pico = flash-script;
 
-        # `nix run` → launches wokwi-cli; also `nix shell .#wokwi-cli` or the
-        # dev shell below all expose it on PATH.
-        apps.default = { type = "app"; program = "${wokwi-cli}/bin/wokwi-cli"; };
+        apps.default = { type = "app"; program = "${flash-script}/bin/flash-pico"; };
+        apps.flash = { type = "app"; program = "${flash-script}/bin/flash-pico"; };
+        apps.flash-pico = { type = "app"; program = "${flash-script}/bin/flash-pico"; };
         apps.wokwi-cli = { type = "app"; program = "${wokwi-cli}/bin/wokwi-cli"; };
 
         devShells.default = pkgs.mkShell {
@@ -106,18 +143,21 @@
             toolchain
             pkgs.flip-link
             pkgs.probe-rs-tools
+            pkgs.picotool
+            flash-script
             wokwi-cli
           ];
 
           # The `.cargo/config.toml` supplies the linker + memory layout link-args;
           # do NOT set RUSTFLAGS here — it overrides them and breaks flip-link.
-          CARGO_BUILD_TARGET = "thumbv6m-none-eabi";
+          CARGO_BUILD_TARGET = "thumbv8m.main-none-eabihf";
 
           shellHook = ''
             echo "pico-ledger dev shell ready."
             echo "  target:  $CARGO_BUILD_TARGET"
             echo "  build:   cargo build"
-            echo "  flash:   probe-rs run --chip RP2040   (or probe-rs download ...)"
+            echo "  flash:   flash-pico                   (builds, converts, mounts, and flashes Pico 2)"
+            echo "           probe-rs run --chip RP235x   (over SWD probe)"
             echo "  sim:     wokwi-cli"
             rustc --version 2>/dev/null && cargo --version 2>/dev/null
           '';

@@ -3,7 +3,7 @@
   "author": "Anonymous",
   "editor": "wokwi",
   "parts": [
-    { "type": "wokwi-pi-pico", "id": "pico", "top": 0, "left": 0, "attrs": {} },
+    { "type": "board-pi-pico-2", "id": "pico", "top": 0, "left": 0, "attrs": {} },
     { "type": "board-ssd1306", "id": "oled", "top": -80, "left": 120, "attrs": {} },
     { "type": "wokwi-pushbutton", "id": "button", "top": 80, "left": 0, "attrs": {} }
   ],

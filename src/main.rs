@@ -1,99 +1,68 @@
 #![no_std]
 #![no_main]
 
-use core::cell::Cell;
-
+use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
+use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::i2c::{Config as I2cConfig, I2c};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_time::Timer;
-use heapless::String;
+use embassy_rp::gpio::{Level, Output};
+use embassy_rp::peripherals::{DMA_CH0, PIO0};
+use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_rp::{bind_interrupts, dma};
+use embassy_time::{Duration, Timer};
 use panic_halt as _;
+use static_cell::StaticCell;
 
-use core::fmt::Write;
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    
-    text::Text,
-};
-use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
-static CLICK_COUNT: Mutex<CriticalSectionRawMutex, Cell<u32>> = Mutex::new(Cell::new(0));
+bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
+});
 
 #[embassy_executor::task]
-async fn button_task(mut button: Input<'static>, mut led: Output<'static>) {
-    loop {
-        // 1. Wait for button press (falling edge)
-        button.wait_for_falling_edge().await;
-
-        // Register the click
-        led.toggle();
-        CLICK_COUNT.lock(|count| {
-            count.set(count.get() + 1);
-        });
-
-        // 2. Debounce press contact bounce
-        Timer::after_millis(30).await;
-
-        // 3. Wait until the button is released
-        button.wait_for_high().await;
-
-        // 4. Debounce release contact bounce
-        Timer::after_millis(30).await;
-    }
+async fn cyw43_task(
+    runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0>>>,
+) -> ! {
+    runner.run().await
 }
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    // 1. Initialize chip clocks, PLLs, and watchdog in one call
     let p = embassy_rp::init(Default::default());
 
-    // 2. Configure Button on GP2 with internal pull-up
-    let button = Input::new(p.PIN_2, Pull::Up);
+    static FW: cyw43::Aligned<cyw43::A4, [u8; 231077]> =
+        cyw43::Aligned(*cyw43_firmware::CYW43_43439A0);
+    static CLM: cyw43::Aligned<cyw43::A4, [u8; 984]> =
+        cyw43::Aligned(*cyw43_firmware::CYW43_43439A0_CLM);
+    static NVRAM: cyw43::Aligned<cyw43::A4, [u8; 742]> =
+        cyw43::Aligned(*include_bytes!("../firmware/nvram_rp2040.bin"));
 
-    // 3. Configure I2C0 for SSD1306 (GP4 = SDA, GP5 = SCL)
-    let i2c = I2c::new_blocking(p.I2C0, p.PIN_5, p.PIN_4, I2cConfig::default());
-    let interface = I2CDisplayInterface::new(i2c);
-    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_buffered_graphics_mode();
-    display.init().unwrap();
+    let pwr = Output::new(p.PIN_23, Level::Low);
+    let cs = Output::new(p.PIN_25, Level::High);
+    let mut pio = Pio::new(p.PIO0, Irqs);
+    let spi = PioSpi::new(
+        &mut pio.common,
+        pio.sm0,
+        DEFAULT_CLOCK_DIVIDER,
+        pio.irq0,
+        cs,
+        p.PIN_24,
+        p.PIN_29,
+        dma::Channel::new(p.DMA_CH0, Irqs),
+    );
 
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
+    static STATE: StaticCell<cyw43::State> = StaticCell::new();
+    let state = STATE.init(cyw43::State::new());
+    let (_device, mut control, runner) = cyw43::new(state, pwr, spi, &FW, &NVRAM).await;
+    spawner.spawn(cyw43_task(runner).unwrap());
+    control.init(&*CLM).await;
 
-    // Initial render
-    display.clear_buffer();
-    Text::new("Ledger Ready", Point::new(10, 20), text_style)
-        .draw(&mut display)
-        .unwrap();
-    display.flush().unwrap();
+    info!("Pico 2 W ready");
+    let delay = Duration::from_millis(500);
 
-    let led = Output::new(p.PIN_25, Level::Low);
-
-    spawner.spawn(button_task(button, led).unwrap());
-
-    // 4. Async Event Loop
     loop {
-        // Read the atomic counter
-        let count = CLICK_COUNT.lock(|click| click.get());
-
-        // Format into a fixed-size stack buffer
-        let mut text: String<32> = String::new();
-        write!(&mut text, "Click Count: {}", count).unwrap();
-
-        // Update the screen
-        display.clear_buffer();
-        Text::new(&text, Point::new(10, 20), text_style)
-            .draw(&mut display)
-            .unwrap();
-        display.flush().unwrap();
-
-        // Screen refresh interval
-        Timer::after_millis(200).await;
+        control.gpio_set(0, true).await;
+        Timer::after(delay).await;
+        control.gpio_set(0, false).await;
+        Timer::after(delay).await;
     }
 }
