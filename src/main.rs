@@ -2,13 +2,13 @@
 #![no_main]
 
 use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
-use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, PIO0, USB};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
+use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -19,9 +19,24 @@ use static_cell::StaticCell;
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
+    USBCTRL_IRQ => UsbInterruptHandler<USB>;
 });
 
+/// Log simultaneously to both defmt (SWD RTT) and USB CDC-ACM serial.
+macro_rules! log_info {
+    ($($arg:tt)*) => {
+        ::defmt::info!($($arg)*);
+        ::log::info!($($arg)*);
+    };
+}
+
 static BUTTON_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+/// Background task running the USB serial logger (CDC-ACM over USB cable).
+#[embassy_executor::task]
+async fn logger_task(driver: Driver<'static, USB>) {
+    embassy_usb_logger::run!(1024, log::LevelFilter::Info, driver);
+}
 
 /// Background task running the CYW43 Wi-Fi/Bluetooth controller driver.
 #[embassy_executor::task]
@@ -39,7 +54,7 @@ async fn button_task(mut button: Input<'static>) {
         button.wait_for_falling_edge().await;
         Timer::after_millis(30).await;
         if button.is_low() {
-            info!("Button (GP2) clicked: toggling LED state");
+            log_info!("Button (GP2) clicked: toggling LED state");
             BUTTON_SIGNAL.signal(());
 
             // Wait for release
@@ -52,9 +67,14 @@ async fn button_task(mut button: Input<'static>) {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-    info!("RP2350 (Pico 2 W) initialized");
 
-    // Static buffers for CYW43 Wi-Fi co-processor firmware and NVRAM
+    // 1. Initialize USB CDC-ACM Serial Logger first so logs can stream immediately
+    let usb_driver = Driver::new(p.USB, Irqs);
+    spawner.spawn(logger_task(usb_driver).unwrap());
+
+    log_info!("RP2350 (Pico 2 W) initialized - USB Serial logging active");
+
+    // 2. Static buffers for CYW43 Wi-Fi co-processor firmware and NVRAM
     static FW: cyw43::Aligned<cyw43::A4, [u8; 231077]> =
         cyw43::Aligned(*cyw43_firmware::CYW43_43439A0);
     static CLM: cyw43::Aligned<cyw43::A4, [u8; 984]> =
@@ -62,7 +82,7 @@ async fn main(spawner: Spawner) {
     static NVRAM: cyw43::Aligned<cyw43::A4, [u8; 742]> =
         cyw43::Aligned(*include_bytes!("../firmware/nvram_rp2040.bin"));
 
-    // Configure CYW43 power and SPI control pins
+    // 3. Configure CYW43 power and SPI control pins
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
     let mut pio = Pio::new(p.PIO0, Irqs);
@@ -83,11 +103,11 @@ async fn main(spawner: Spawner) {
     spawner.spawn(cyw43_task(runner).unwrap());
     control.init(&*CLM).await;
 
-    // Spawn button monitoring on GP2
+    // 4. Spawn button monitoring on GP2
     let button = Input::new(p.PIN_2, Pull::Up);
     spawner.spawn(button_task(button).unwrap());
 
-    info!("Pico 2 W ready: LED ON by default. Press button to deactivate/activate.");
+    log_info!("Pico 2 W ready: LED ON by default. Press button to deactivate/reactivate.");
 
     // Start with LED ON by default
     let mut is_active = true;
@@ -109,7 +129,7 @@ async fn main(spawner: Spawner) {
                     is_active = false;
                     led_on = false;
                     control.gpio_set(0, false).await;
-                    info!("LED deactivated (OFF)");
+                    log_info!("LED deactivated (OFF)");
                 }
             }
         } else {
@@ -118,7 +138,7 @@ async fn main(spawner: Spawner) {
             is_active = true;
             led_on = true;
             control.gpio_set(0, true).await;
-            info!("LED reactivated (ON)");
+            log_info!("LED reactivated (ON)");
         }
     }
 }

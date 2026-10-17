@@ -128,15 +128,53 @@
 
           echo "Success! The Pico 2 is now flashing and rebooting."
         '';
+
+        watch-script = pkgs.writeShellScriptBin "watch-logs" ''
+          set -euo pipefail
+          export PATH="${pkgs.lib.makeBinPath [ pkgs.tio pkgs.coreutils ]}:$PATH"
+
+          echo "Waiting for Pico USB serial port (/dev/ttyACM*)..."
+          for i in $(seq 1 50); do
+            DEVICE=$(ls /dev/ttyACM* 2>/dev/null | head -n 1 || true)
+            if [ -n "$DEVICE" ] && [ -e "$DEVICE" ]; then
+              break
+            fi
+            sleep 0.1
+          done
+
+          if [ -z "$DEVICE" ] || [ ! -e "$DEVICE" ]; then
+            echo "Error: Timed out waiting for /dev/ttyACM*." >&2
+            echo "Make sure your Raspberry Pi Pico is connected and powered." >&2
+            exit 1
+          fi
+
+          echo "== Connected to $DEVICE (press Ctrl+T then q to exit) =="
+          exec tio "$DEVICE"
+        '';
+
+        flash-watch-script = pkgs.writeShellScriptBin "flash-watch" ''
+          set -euo pipefail
+          export PATH="${pkgs.lib.makeBinPath [ flash-script watch-script ]}:$PATH"
+
+          flash-pico
+          echo ""
+          watch-logs
+        '';
       in
       {
         packages.default = firmware;
         packages.wokwi-cli = wokwi-cli;
         packages.flash-pico = flash-script;
+        packages.flash-watch = flash-watch-script;
+        packages.watch-logs = watch-script;
 
-        apps.default = { type = "app"; program = "${flash-script}/bin/flash-pico"; };
+        apps.default = { type = "app"; program = "${flash-watch-script}/bin/flash-watch"; };
         apps.flash = { type = "app"; program = "${flash-script}/bin/flash-pico"; };
         apps.flash-pico = { type = "app"; program = "${flash-script}/bin/flash-pico"; };
+        apps.flash-watch = { type = "app"; program = "${flash-watch-script}/bin/flash-watch"; };
+        apps.watch = { type = "app"; program = "${watch-script}/bin/watch-logs"; };
+        apps.watch-logs = { type = "app"; program = "${watch-script}/bin/watch-logs"; };
+        apps.logs = { type = "app"; program = "${watch-script}/bin/watch-logs"; };
         apps.wokwi-cli = { type = "app"; program = "${wokwi-cli}/bin/wokwi-cli"; };
 
         devShells.default = pkgs.mkShell {
@@ -146,7 +184,10 @@
             pkgs.flip-link
             pkgs.probe-rs-tools
             pkgs.picotool
+            pkgs.tio
             flash-script
+            flash-watch-script
+            watch-script
             wokwi-cli
           ];
 
@@ -156,11 +197,13 @@
 
           shellHook = ''
             echo "pico-ledger dev shell ready."
-            echo "  target:  $CARGO_BUILD_TARGET"
-            echo "  build:   cargo build"
-            echo "  flash:   flash-pico                   (builds, converts, mounts, and flashes Pico 2)"
-            echo "           probe-rs run --chip RP235x   (over SWD probe)"
-            echo "  sim:     wokwi-cli"
+            echo "  target:      $CARGO_BUILD_TARGET"
+            echo "  build:       cargo build"
+            echo "  flash & log: flash-watch                  (flashes and attaches live USB logs)"
+            echo "  flash:       flash-pico                   (builds, converts, mounts, flashes Pico 2)"
+            echo "  logs:        watch-logs                   (streams live USB serial logs via tio)"
+            echo "  probe:       probe-rs run --chip RP235x   (over SWD probe)"
+            echo "  sim:         wokwi-cli"
             rustc --version 2>/dev/null && cargo --version 2>/dev/null
           '';
         };

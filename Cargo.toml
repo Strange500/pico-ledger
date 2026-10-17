@@ -22,6 +22,9 @@ cyw43 = { version = "0.7.0", features = ["defmt"] }
 cyw43-firmware = { version = "0.1.0", features = ["wifi"] }
 cyw43-pio = { version = "0.10.0", features = ["defmt"] }
 static_cell = "2.1.0"
+embassy-usb = { version = "0.6.0", features = ["defmt"] }
+embassy-usb-logger = "0.6.0"
+log = "0.4.34"
 
 # but you can use any BSP.
 # If you're not going to use a Board Support Package you'll need these:
