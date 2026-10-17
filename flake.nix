@@ -98,7 +98,9 @@
           cargo build --release --target thumbv8m.main-none-eabihf
 
           echo "== 2. Converting ELF to RP2350 UF2 =="
-          picotool uf2 convert -t elf target/thumbv8m.main-none-eabihf/release/pico-ledger pico-ledger.uf2 --family rp2350-arm-s
+          ELF_PATH="target/thumbv8m.main-none-eabihf/release/pico-ledger"
+          UF2_PATH="target/thumbv8m.main-none-eabihf/release/pico-ledger.uf2"
+          picotool uf2 convert -t elf "$ELF_PATH" "$UF2_PATH" --family rp2350-arm-s
 
           echo "== 3. Locating RP2350 device =="
           MOUNT_POINT=$(findmnt -rn -o TARGET -S LABEL=RP2350 2>/dev/null || true)
@@ -121,7 +123,7 @@
 
           echo "Mounted at: $MOUNT_POINT"
           echo "== 4. Copying UF2 firmware to Pico 2 =="
-          cp pico-ledger.uf2 "$MOUNT_POINT/"
+          cp "$UF2_PATH" "$MOUNT_POINT/"
           sync
 
           echo "Success! The Pico 2 is now flashing and rebooting."

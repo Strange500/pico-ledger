@@ -1,7 +1,13 @@
 # pico-ledger
 
-Raspberry Pi Pico 2 W (RP2350, ARM Cortex-M33) bare-metal firmware in Rust.
-Blinks the on-board CYW43 LED via Embassy async tasks.
+Raspberry Pi Pico 2 W (RP2350, ARM Cortex-M33 + CYW43439) bare-metal firmware in Rust using Embassy.
+
+> **Hardware Note**: On the Raspberry Pi Pico 2 W, the onboard LED is controlled via the CYW43 wireless chip (GPIO 0), not directly by RP2350 GPIO 25. This project uses Embassy's `cyw43` and `cyw43-pio` drivers to control the LED.
+
+Features:
+- **CYW43 Onboard LED**: Turns ON by default upon initialization, then blinks asynchronously.
+- **Debounced Button Handling**: Interrupt-driven, async debounced button input on `GP2`.
+- **Screen-Independent**: Runs without requiring an external OLED screen.
 
 ## Prerequisites (plain Rust)
 
@@ -53,7 +59,7 @@ Hold the Pico 2's BOOTSEL button while plugging it in, then either:
   ```
 - **Manual `.uf2` copy**:
   ```bash
-  picotool uf2 convert -t elf target/thumbv8m.main-none-eabihf/release/pico-ledger pico-ledger.uf2 --family rp2350-arm-s
+  picotool uf2 convert -t elf target/thumbv8m.main-none-eabihf/release/pico-ledger target/thumbv8m.main-none-eabihf/release/pico-ledger.uf2 --family rp2350-arm-s
   ```
   Drop the produced `.uf2` onto the `RP2350` mount point.
 
