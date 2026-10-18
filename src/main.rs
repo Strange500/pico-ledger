@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-
 use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -15,6 +14,16 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use static_cell::StaticCell;
+// import Vec from alloc crate
+use alloc::vec::Vec;
+
+extern crate alloc;
+
+use cortex_m_rt::entry;
+use embedded_alloc::LlffHeap as Heap;
+
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
@@ -66,6 +75,10 @@ async fn button_task(mut button: Input<'static>) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    unsafe {
+        embedded_alloc::init!(HEAP, 128 * 1024);
+    }
+
     let p = embassy_rp::init(Default::default());
 
     // 1. Initialize USB CDC-ACM Serial Logger first so logs can stream immediately
@@ -115,6 +128,13 @@ async fn main(spawner: Spawner) {
     control.gpio_set(0, led_on).await;
 
     let delay = Duration::from_millis(500);
+
+    // test heap allocation
+    let mut vec = Vec::new();
+    for i in 0..10 {
+        vec.push(i);
+        log_info!("Pusdedh");
+    }
 
     loop {
         if is_active {

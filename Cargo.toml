@@ -25,6 +25,7 @@ static_cell = "2.1.0"
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-logger = "0.6.0"
 log = "0.4.34"
+embedded-alloc = "0.7.0"
 
 # but you can use any BSP.
 # If you're not going to use a Board Support Package you'll need these:
