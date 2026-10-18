@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+
 use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -14,14 +15,12 @@ use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use static_cell::StaticCell;
-// import Vec from alloc crate
-use alloc::vec::Vec;
-
+mod wordlist;
+use wordlist::{get_word, WORD_LIST};
 extern crate alloc;
 
-use cortex_m_rt::entry;
 use embedded_alloc::LlffHeap as Heap;
-
+                
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
@@ -33,13 +32,14 @@ bind_interrupts!(struct Irqs {
 
 /// Log simultaneously to both defmt (SWD RTT) and USB CDC-ACM serial.
 macro_rules! log_info {
-    ($($arg:tt)*) => {
+    ($($arg:tt)*) => {{
         ::defmt::info!($($arg)*);
         ::log::info!($($arg)*);
-    };
+    }};
 }
 
 static BUTTON_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static CLICK_COUNT: Signal<CriticalSectionRawMutex, usize> = Signal::new();
 
 /// Background task running the USB serial logger (CDC-ACM over USB cable).
 #[embassy_executor::task]
@@ -53,6 +53,18 @@ async fn cyw43_task(
     runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0>>>,
 ) -> ! {
     runner.run().await
+}
+
+#[embassy_executor::task]
+async fn rd_word() {
+    loop {
+        let word = get_word(CLICK_COUNT.try_take().unwrap() % WORD_LIST.len());
+        match word {
+            Some(w) => log_info!("Random word: {}", w),
+            None => log_info!("No word found for the given index"),
+        }
+        Timer::after(Duration::from_secs(5)).await;
+    }
 }
 
 /// Button task on GP2 (active-low with internal pull-up).
@@ -128,13 +140,6 @@ async fn main(spawner: Spawner) {
     control.gpio_set(0, led_on).await;
 
     let delay = Duration::from_millis(500);
-
-    // test heap allocation
-    let mut vec = Vec::new();
-    for i in 0..10 {
-        vec.push(i);
-        log_info!("Pusdedh");
-    }
 
     loop {
         if is_active {
