@@ -6,8 +6,9 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, PIO0, USB};
+use embassy_rp::peripherals::{DMA_CH0, PIO0, TRNG, USB};
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
+use embassy_rp::trng::{Config as TrngConfig, InterruptHandler as TrngInterruptHandler, Trng};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -20,7 +21,7 @@ use wordlist::{get_word, WORD_LIST};
 extern crate alloc;
 
 use embedded_alloc::LlffHeap as Heap;
-                
+
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
@@ -28,6 +29,7 @@ bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
     USBCTRL_IRQ => UsbInterruptHandler<USB>;
+    TRNG_IRQ => TrngInterruptHandler<TRNG>;
 });
 
 /// Log simultaneously to both defmt (SWD RTT) and USB CDC-ACM serial.
@@ -39,7 +41,6 @@ macro_rules! log_info {
 }
 
 static BUTTON_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-static CLICK_COUNT: Signal<CriticalSectionRawMutex, usize> = Signal::new();
 
 /// Background task running the USB serial logger (CDC-ACM over USB cable).
 #[embassy_executor::task]
@@ -56,10 +57,12 @@ async fn cyw43_task(
 }
 
 #[embassy_executor::task]
-async fn rd_word() {
+async fn rd_word(mut trng: Trng<'static, TRNG>) {
     loop {
-        let word = get_word(CLICK_COUNT.try_take().unwrap() % WORD_LIST.len());
-        match word {
+        let mut buf = [0u8; 2];
+        trng.fill_bytes(&mut buf).await;
+        let index = (u16::from_le_bytes(buf) as usize) % WORD_LIST.len();
+        match get_word(index) {
             Some(w) => log_info!("Random word: {}", w),
             None => log_info!("No word found for the given index"),
         }
@@ -131,7 +134,8 @@ async fn main(spawner: Spawner) {
     // 4. Spawn button monitoring on GP2
     let button = Input::new(p.PIN_2, Pull::Up);
     spawner.spawn(button_task(button).unwrap());
-
+    let trng = Trng::new(p.TRNG, Irqs, TrngConfig::default());
+    spawner.spawn(rd_word(trng).unwrap());
     log_info!("Pico 2 W ready: LED ON by default. Press button to deactivate/reactivate.");
 
     // Start with LED ON by default
