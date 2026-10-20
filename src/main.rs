@@ -27,7 +27,7 @@ use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 use static_cell::StaticCell;
 
 mod wordlist;
-use wordlist::{get_word, WORD_LIST};
+use wordlist::WORD_LIST;
 extern crate alloc;
 
 use embedded_alloc::LlffHeap as Heap;
@@ -75,27 +75,25 @@ async fn cyw43_task(
 #[embassy_executor::task]
 async fn rd_word(mut trng: Trng<'static, TRNG>) {
     loop {
-        change_word(&mut trng).await;
+        let mut buf = [0u8; 2];
+        trng.fill_bytes(&mut buf).await;
+        let word = WORD_LIST[(u16::from_le_bytes(buf) as usize) % WORD_LIST.len()];
+        log_info!("Random word: {}", word);
+        WORD_SIGNAL.signal(word);
+
         // Wait 5 seconds OR until a button press signals to pick a new word immediately
-        match select(Timer::after(Duration::from_secs(5)), CHANGE_WORD_SIGNAL.wait()).await {
+        match select(
+            Timer::after(Duration::from_secs(5)),
+            CHANGE_WORD_SIGNAL.wait(),
+        )
+        .await
+        {
             Either::First(_) => {}
             Either::Second(_) => {}
         }
     }
 }
 
-async fn change_word(trng: &mut Trng<'static, TRNG>) {
-    let mut buf = [0u8; 2];
-    trng.fill_bytes(&mut buf).await;
-    let index = (u16::from_le_bytes(buf) as usize) % WORD_LIST.len();
-    match get_word(index) {
-        Some(w) => {
-            log_info!("Random word: {}", w);
-            WORD_SIGNAL.signal(w);
-        }
-        None => log_info!("No word found for the given index"),
-    }
-}
 /// Background task: drive the SSD1306 128x64 OLED over I2C (GP4 SDA, GP5 SCL).
 #[embassy_executor::task]
 async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
@@ -126,28 +124,25 @@ async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
         .build();
     let line_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
 
-    let draw_header = |display: &mut _| {
-        let _ = Text::new("PICO 2 LEDGER", Point::new(24, 10), text_style).draw(display);
+    let mut render = |status: &str, line1: &str, line2: &str| {
+        display.clear_buffer();
+        let _ = Text::new("PICO 2 LEDGER", Point::new(24, 10), text_style).draw(&mut display);
         let _ = Line::new(Point::new(0, 14), Point::new(127, 14))
             .into_styled(line_style)
-            .draw(display);
+            .draw(&mut display);
+        let _ = Text::new(status, Point::new(4, 28), text_style).draw(&mut display);
+        let _ = Text::new(line1, Point::new(4, 42), text_style).draw(&mut display);
+        if !line2.is_empty() {
+            let _ = Text::new(line2, Point::new(4, 56), text_style).draw(&mut display);
+        }
+        let _ = display.flush();
     };
 
-    // Initial screen
-    display.clear_buffer();
-    draw_header(&mut display);
-    let _ = Text::new("Status: Ready", Point::new(4, 28), text_style).draw(&mut display);
-    let _ = Text::new("Waiting for word...", Point::new(4, 44), text_style).draw(&mut display);
-    let _ = display.flush();
+    render("Status: Ready", "Waiting for word...", "");
 
     loop {
         let word = WORD_SIGNAL.wait().await;
-        display.clear_buffer();
-        draw_header(&mut display);
-        let _ = Text::new("Status: Active", Point::new(4, 28), text_style).draw(&mut display);
-        let _ = Text::new("Random Word:", Point::new(4, 42), text_style).draw(&mut display);
-        let _ = Text::new(word, Point::new(4, 56), text_style).draw(&mut display);
-        let _ = display.flush();
+        render("Status: Active", "Random Word:", word);
     }
 }
 
@@ -159,7 +154,6 @@ async fn button_task(mut button: Input<'static>) {
         Timer::after_millis(30).await;
         if button.is_low() {
             log_info!("Button (GP2) clicked");
-            BUTTON_SIGNAL.signal(());
             CHANGE_WORD_SIGNAL.signal(());
             button.wait_for_rising_edge().await;
             Timer::after_millis(30).await;
@@ -228,32 +222,22 @@ async fn main(spawner: Spawner) {
 
     log_info!("Pico 2 WH ready — LED blinking, OLED active.");
 
-    let mut is_active = true;
     let mut led_on = true;
     control.gpio_set(0, true).await;
 
     let delay = Duration::from_millis(500);
 
     loop {
-        if is_active {
-            match select(Timer::after(delay), BUTTON_SIGNAL.wait()).await {
-                Either::First(_) => {
-                    led_on = !led_on;
-                    control.gpio_set(0, led_on).await;
-                }
-                Either::Second(_) => {
-                    is_active = false;
-                    led_on = false;
-                    control.gpio_set(0, false).await;
-                    log_info!("LED deactivated");
-                }
+        match select(Timer::after(delay), BUTTON_SIGNAL.wait()).await {
+            Either::First(_) => {
+                led_on = !led_on;
+                control.gpio_set(0, led_on).await;
             }
-        } else {
-            BUTTON_SIGNAL.wait().await;
-            is_active = true;
-            led_on = true;
-            control.gpio_set(0, true).await;
-            log_info!("LED reactivated");
+            Either::Second(_) => {
+                led_on = false;
+                control.gpio_set(0, false).await;
+                log_info!("LED deactivated");
+            }
         }
     }
 }

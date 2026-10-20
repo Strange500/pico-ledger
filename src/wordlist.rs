@@ -1,7 +1,4 @@
-// BIUTCOIN BIP39 English wordlist
-pub fn get_word(index: usize) -> Option<&'static str> {
-    WORD_LIST.get(index).copied()
-}
+// BITCOIN BIP39 English wordlist
 pub static WORD_LIST: [&str; 2048] = [
     "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd",
     "abuse", "access", "accident", "account", "accuse", "achieve", "acid", "acoustic", "acquire",
