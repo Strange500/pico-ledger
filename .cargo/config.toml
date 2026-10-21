@@ -21,5 +21,8 @@ rustflags = [
 [build]
 target = "thumbv8m.main-none-eabihf"
 
+[alias]
+test-host = "test --package bip39 --target x86_64-unknown-linux-gnu"
+
 [env]
 DEFMT_LOG = "debug"

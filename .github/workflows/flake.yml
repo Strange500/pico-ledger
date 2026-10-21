@@ -8,6 +8,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/**'
+      - 'crates/**'
       - '.cargo/**'
       - '.github/workflows/flake.yml'
   pull_request:
@@ -17,6 +18,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/**'
+      - 'crates/**'
       - '.cargo/**'
       - '.github/workflows/flake.yml'
 
@@ -57,6 +59,8 @@ jobs:
             done
             echo "== versions =="
             cargo --version
+            echo "== cargo test (host) =="
+            cargo test-host
             echo "== cargo build (dev shell) =="
             cargo build --release
             test -f target/thumbv8m.main-none-eabihf/release/pico-ledger && echo "  ok: firmware built"
