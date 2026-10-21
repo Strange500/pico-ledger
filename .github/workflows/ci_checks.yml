@@ -1,59 +1,77 @@
 name: CI Checks
 
-on: [push, pull_request]
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  test:
+    name: Unit Tests (Host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run BIP-39 host tests
+        run: cargo test -p bip39 --target x86_64-unknown-linux-gnu
+
   building:
-    name: Building
+    name: Firmware Build (${{ matrix.os }}, ${{ matrix.rust }})
     continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       matrix:
-        # All generated code should be running on stable now
-        rust: [nightly, stable]
+        rust: [stable, nightly]
         include:
-          # Nightly is only for reference and allowed to fail
           - rust: nightly
             experimental: true
         os:
-          # Check compilation works on common OSes
-          # (i.e. no path issues)
           - ubuntu-latest
           - macOS-latest
           - windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
           target: thumbv8m.main-none-eabihf
-      - run: cargo install flip-link
-      - run: cargo build --all
-      - run: cargo build --all --release
+      - name: Install flip-link
+        uses: taiki-e/install-action@v2
+        with:
+          tool: flip-link
+      - name: Build debug
+        run: cargo build --all
+      - name: Build release
+        run: cargo build --all --release
+
   linting:
-    name: Linting
+    name: Linting (Clippy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
           target: thumbv8m.main-none-eabihf
-      - run: cargo clippy --all-features -- --deny=warnings
+      - name: Run clippy
+        run: cargo clippy --all-features -- --deny=warnings
+
   formatting:
-    name: Formatting
+    name: Formatting (rustfmt)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
           target: thumbv8m.main-none-eabihf
-      - run: cargo fmt -- --check
+      - name: Check code formatting
+        run: cargo fmt -- --check

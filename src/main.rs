@@ -6,7 +6,6 @@ extern crate alloc;
 use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
 use embassy_rp::bind_interrupts;
 use embassy_rp::dma;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
@@ -22,10 +21,11 @@ use static_cell::StaticCell;
 
 #[macro_use]
 mod macros;
+pub mod crypto;
 mod signals;
 mod tasks;
 mod ui;
-mod wordlist;
+pub mod wordlist;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
@@ -51,6 +51,13 @@ async fn main(spawner: Spawner) {
     spawner.spawn(tasks::usb::logger_task(usb_driver).unwrap());
 
     log_info!("RP2350 (Pico 2 WH) booted - USB serial active");
+
+    // Validation des primitives cryptographiques BIP-39
+    if let Err(err) = crypto::run_self_tests() {
+        log_info!("BIP-39 self-test error: {}", err);
+    } else {
+        log_info!("BIP-39 self-tests verified (test vectors OK)");
+    }
 
     // 2. Démarrage de l'affichage OLED SSD1306 (GP4 = SDA, GP5 = SCL)
     let mut i2c_config = I2cConfig::default();
