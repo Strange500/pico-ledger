@@ -9,17 +9,23 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
+  outputs = {
+    self,
+    nixpkgs,
+    rust-overlay,
+    flake-utils,
+    ...
+  }:
+    flake-utils.lib.eachDefaultSystem (
+      system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ rust-overlay.overlays.default ];
+          overlays = [rust-overlay.overlays.default];
         };
 
         # Stable Rust with the Pi Pico 2 (Cortex-M33) target installed.
         toolchain = pkgs.rust-bin.stable.latest.default.override {
-          targets = [ "thumbv8m.main-none-eabihf" ];
+          targets = ["thumbv8m.main-none-eabihf"];
         };
 
         # wokwi-cli is NOT packaged in nixpkgs; it ships as a single static
@@ -28,23 +34,28 @@
         wokwi-cli = pkgs.stdenv.mkDerivation rec {
           pname = "wokwi-cli";
           version = "0.28.1";
-          src =
-            let
-              asset = {
+          src = let
+            asset =
+              {
                 x86_64-linux = "wokwi-cli-linuxstatic-x64";
                 aarch64-linux = "wokwi-cli-linuxstatic-arm64";
                 x86_64-darwin = "wokwi-cli-macos-x64";
                 aarch64-darwin = "wokwi-cli-macos-arm64";
-              }.${system};
-            in
+              }.${
+                system
+              };
+          in
             pkgs.fetchurl {
               url = "https://github.com/wokwi/wokwi-cli/releases/download/v${version}/${asset}";
-              sha256 = {
-                x86_64-linux = "869f194ee473257c6112ed58d786376527769020056320b0a49a37d9e7d3bdd7";
-                aarch64-linux = "2aa99971f7b1bcadce3f42a0cc0b088c4faabc2d052f7c830008560c3f1dfe4c";
-                x86_64-darwin = "e47e93402157f21328af7cd6b23d1077be9fb86523ef2326bcd1670a58b809db";
-                aarch64-darwin = "022e89a1539db9a25f9d0df2d9d44bde941b8a677aaf697f01533f0fd2e171e5";
-              }.${system};
+              sha256 =
+                {
+                  x86_64-linux = "869f194ee473257c6112ed58d786376527769020056320b0a49a37d9e7d3bdd7";
+                  aarch64-linux = "2aa99971f7b1bcadce3f42a0cc0b088c4faabc2d052f7c830008560c3f1dfe4c";
+                  x86_64-darwin = "e47e93402157f21328af7cd6b23d1077be9fb86523ef2326bcd1670a58b809db";
+                  aarch64-darwin = "022e89a1539db9a25f9d0df2d9d44bde941b8a677aaf697f01533f0fd2e171e5";
+                }.${
+                  system
+                };
             };
           dontUnpack = true;
           dontStrip = true;
@@ -54,7 +65,7 @@
           meta = {
             description = "Wokwi Simulation API command line interface";
             homepage = "https://github.com/wokwi/wokwi-cli";
-            platforms = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+            platforms = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
           };
         };
 
@@ -73,9 +84,9 @@
             src = ./.;
             filter = name: type:
               !(builtins.elem (baseNameOf (toString name))
-                [ "target" ".github" ".git" ]);
+                ["target" ".github" ".git"]);
           };
-          nativeBuildInputs = [ toolchain pkgs.flip-link ];
+          nativeBuildInputs = [toolchain pkgs.flip-link];
           buildPhase = ''
             # Nix builds run with an unwritable HOME; give cargo a writable home.
             export CARGO_HOME="$(pwd)/.cargo-home"
@@ -87,12 +98,12 @@
           '';
           meta = {
             description = "pico-ledger RP2350 firmware (ELF)";
-            platforms = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+            platforms = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
           };
         };
         flash-script = pkgs.writeShellScriptBin "flash-pico" ''
           set -euo pipefail
-          export PATH="${pkgs.lib.makeBinPath [ toolchain pkgs.flip-link pkgs.picotool pkgs.util-linux pkgs.coreutils ]}:$PATH"
+          export PATH="${pkgs.lib.makeBinPath [toolchain pkgs.flip-link pkgs.picotool pkgs.util-linux pkgs.coreutils]}:$PATH"
 
           echo "== 1. Building release firmware =="
           cargo build --release --target thumbv8m.main-none-eabihf
@@ -131,7 +142,7 @@
 
         watch-script = pkgs.writeShellScriptBin "watch-logs" ''
           set -euo pipefail
-          export PATH="${pkgs.lib.makeBinPath [ pkgs.tio pkgs.coreutils ]}:$PATH"
+          export PATH="${pkgs.lib.makeBinPath [pkgs.tio pkgs.coreutils]}:$PATH"
 
           echo "Waiting for Pico USB serial port (/dev/ttyACM*)..."
           for i in $(seq 1 50); do
@@ -154,28 +165,51 @@
 
         flash-watch-script = pkgs.writeShellScriptBin "flash-watch" ''
           set -euo pipefail
-          export PATH="${pkgs.lib.makeBinPath [ flash-script watch-script ]}:$PATH"
+          export PATH="${pkgs.lib.makeBinPath [flash-script watch-script]}:$PATH"
 
           flash-pico
           echo ""
           watch-logs
         '';
-      in
-      {
+      in {
         packages.default = firmware;
         packages.wokwi-cli = wokwi-cli;
         packages.flash-pico = flash-script;
         packages.flash-watch = flash-watch-script;
         packages.watch-logs = watch-script;
 
-        apps.default = { type = "app"; program = "${flash-watch-script}/bin/flash-watch"; };
-        apps.flash = { type = "app"; program = "${flash-script}/bin/flash-pico"; };
-        apps.flash-pico = { type = "app"; program = "${flash-script}/bin/flash-pico"; };
-        apps.flash-watch = { type = "app"; program = "${flash-watch-script}/bin/flash-watch"; };
-        apps.watch = { type = "app"; program = "${watch-script}/bin/watch-logs"; };
-        apps.watch-logs = { type = "app"; program = "${watch-script}/bin/watch-logs"; };
-        apps.logs = { type = "app"; program = "${watch-script}/bin/watch-logs"; };
-        apps.wokwi-cli = { type = "app"; program = "${wokwi-cli}/bin/wokwi-cli"; };
+        apps.default = {
+          type = "app";
+          program = "${flash-watch-script}/bin/flash-watch";
+        };
+        apps.flash = {
+          type = "app";
+          program = "${flash-script}/bin/flash-pico";
+        };
+        apps.flash-pico = {
+          type = "app";
+          program = "${flash-script}/bin/flash-pico";
+        };
+        apps.flash-watch = {
+          type = "app";
+          program = "${flash-watch-script}/bin/flash-watch";
+        };
+        apps.watch = {
+          type = "app";
+          program = "${watch-script}/bin/watch-logs";
+        };
+        apps.watch-logs = {
+          type = "app";
+          program = "${watch-script}/bin/watch-logs";
+        };
+        apps.logs = {
+          type = "app";
+          program = "${watch-script}/bin/watch-logs";
+        };
+        apps.wokwi-cli = {
+          type = "app";
+          program = "${wokwi-cli}/bin/wokwi-cli";
+        };
 
         devShells.default = pkgs.mkShell {
           name = "pico-ledger-dev";
@@ -189,6 +223,9 @@
             flash-watch-script
             watch-script
             wokwi-cli
+            pkgs.SDL2
+            pkgs.SDL2_sound
+            pkgs.SDL2.dev
           ];
 
           # The `.cargo/config.toml` supplies the linker + memory layout link-args;

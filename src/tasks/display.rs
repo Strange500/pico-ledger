@@ -1,16 +1,20 @@
+use alloc::string::ToString;
+use buoyant::render_target::RenderTarget;
+use buoyant::{
+    app::App, primitives::Size, render_target::EmbeddedGraphicsRenderTarget, view::prelude::*,
+};
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Timer};
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    primitives::{Line, PrimitiveStyle},
-    text::Text,
-};
+use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor, prelude::*};
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
 use crate::signals::WORD_SIGNAL;
+
+#[derive(Clone, Default)]
+struct State {
+    count: i32,
+}
 
 /// Background task: drive the SSD1306 128x64 OLED over I2C (GP4 SDA, GP5 SCL).
 #[embassy_executor::task]
@@ -18,6 +22,8 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
     let interface = I2CDisplayInterface::new(i2c);
     let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
+    let size = Size::new(display.size().width as u32, display.size().height as u32);
+    let mut app = App::new(State::default(), size, counter_view);
 
     // Retry init a few times — the display may not be ready immediately after power-on.
     let mut initialized = false;
@@ -36,30 +42,29 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
     }
     log_info!("SSD1306 initialized successfully.");
 
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
-    let line_style = PrimitiveStyle::with_stroke(BinaryColor::On, 1);
-
-    let mut render = |status: &str, line1: &str, line2: &str| {
-        display.clear_buffer();
-        let _ = Text::new("PICO 2 LEDGER", Point::new(24, 10), text_style).draw(&mut display);
-        let _ = Line::new(Point::new(0, 14), Point::new(127, 14))
-            .into_styled(line_style)
-            .draw(&mut display);
-        let _ = Text::new(status, Point::new(4, 28), text_style).draw(&mut display);
-        let _ = Text::new(line1, Point::new(4, 42), text_style).draw(&mut display);
-        if !line2.is_empty() {
-            let _ = Text::new(line2, Point::new(4, 56), text_style).draw(&mut display);
-        }
-        let _ = display.flush();
-    };
-
-    render("Status: Ready", "Waiting for word...", "");
+    let mut target = EmbeddedGraphicsRenderTarget::new(&mut display);
 
     loop {
-        let word = WORD_SIGNAL.wait().await;
-        render("Status: Active", "Random Word:", word);
+        if app.should_redraw() || target.clear_animation_status() {
+            target.clear(BinaryColor::Off);
+            // Render animated transition between source and target trees
+            app.render_animated(&mut target, &BinaryColor::On);
+            // Clear for the next frame
+            target
+                .display_mut()
+                .flush()
+                .expect("Failed to flush display buffer");
+        } else {
+            Timer::after(Duration::from_millis(50)).await;
+        }
     }
+}
+
+fn counter_view(state: &State) -> impl View<BinaryColor, State> + use<> {
+    VStack::new((
+        Text::new("Counter", &FONT_6X10),
+        Divider::new(1),
+        Spacer::default(),
+        Text::new("Press > to increment", &FONT_6X10),
+    ))
 }
