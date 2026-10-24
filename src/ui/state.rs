@@ -1,5 +1,5 @@
 use buoyant::{match_view, view::prelude::*};
-use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor, prelude::*};
+use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor};
 
 use crate::tasks::display::State;
 

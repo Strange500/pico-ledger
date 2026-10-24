@@ -1,17 +1,19 @@
 # pico-ledger
 
-Bare-metal firmware for the **Raspberry Pi Pico 2 W** (RP2350, ARM Cortex-M33 + Infineon CYW43439) written in asynchronous Rust using the **Embassy** framework.
+Bare-metal Bitcoin hardware wallet firmware for the **Raspberry Pi Pico 2 W** (RP2350, ARM Cortex-M33 + Infineon CYW43439) written in asynchronous Rust using the **Embassy** framework.
 
 ---
 
 ## Overview
 
-- **Onboard LED Control**: On the Pico 2 W, the onboard LED is physically connected to the Infineon CYW43439 co-processor (GPIO 0). This project uses Embassy's `cyw43` and `cyw43-pio` drivers to initialize the wireless chip and drive the LED.
-- **Default State & Blinking**: The LED turns **ON by default** upon boot, and begins an asynchronous 500 ms blink cycle.
-- **Interactive Button Deactivation**: Pressing an external button connected to `GP2` (active-low with internal pull-up) immediately deactivates the LED (turns it OFF) using Embassy's asynchronous `select` pattern. Pressing it again reactivates the LED and resumes blinking.
-- **Live USB Serial Logging**: Exposes a USB CDC-ACM virtual COM port (`/dev/ttyACM0`) through `embassy-usb-logger`. You can view live formatted log messages directly over your standard USB cable in any terminal.
+- **BIP-39 Mnemonic Generation**: Generates cryptographically secure recovery seed phrases using the RP2350 hardware True Random Number Generator (TRNG) and SHA-256 checksums.
+- **SSD1306 128x64 OLED Display**: Async I2C driver powered by `buoyant` and `embedded-graphics` displaying wallet status, seed phrases, and interactive prompts.
+- **Onboard LED Control**: On the Pico 2 W, the onboard LED is physically connected to the Infineon CYW43439 co-processor (GPIO 0). Driven via Embassy's `cyw43` and `cyw43-pio` drivers.
+- **Interactive Pushbutton**: Pushbutton on `GP2` (active-low with internal pull-up) triggers seed phrase generation, screen navigation, and LED control.
+- **Live USB Serial Logging**: Exposes a USB CDC-ACM virtual COM port (`/dev/ttyACM0`) through `embassy-usb-logger` for real-time diagnostics.
 - **SWD RTT Logging**: Simultaneously streams logs over SWD via `defmt-rtt` when using a debug probe like `probe-rs`.
-- **Reproducible Nix Environment**: Complete Nix flake providing `picotool`, `tio`, `probe-rs`, `flip-link`, and cross-compilation toolchains with one-step flash and live log watching commands.
+- **Desktop UI Simulator**: Standalone desktop runner using `embedded-graphics-simulator` to preview and test display views on the host without flashing hardware.
+- **Reproducible Nix Environment**: Complete Nix flake providing `picotool`, `tio`, `probe-rs`, `flip-link`, Wokwi simulation, and cross-compilation toolchains.
 
 ---
 
@@ -20,12 +22,39 @@ Bare-metal firmware for the **Raspberry Pi Pico 2 W** (RP2350, ARM Cortex-M33 + 
 | Pin / Interface | Target | Function | Notes |
 |---|---|---|---|
 | **USB** | Host PC | Power, Firmware Flashing, CDC-ACM Serial Logs | Connects via micro-USB; appears as `/dev/ttyACM0` |
-| **GP2** | Pushbutton | Button Input | Active-low; internal pull-up enabled; other button leg to GND |
+| **GP2** | Pushbutton | User Input | Active-low; internal pull-up enabled; other button leg to GND |
+| **GP4** | SSD1306 OLED | I2C0 SDA (Data) | Pulled high by display module; connects to OLED SDA |
+| **GP5** | SSD1306 OLED | I2C0 SCL (Clock) | 400 kHz fast-mode I2C; connects to OLED SCL |
+| **3V3 (Pin 36)** | SSD1306 OLED | Display Power (VCC) | 3.3V power supply rail |
+| **GND (Pin 38)** | SSD1306 OLED / Button | Ground Reference | Common ground |
 | **CYW43 GPIO 0** | Onboard LED | System Status Indicator | Driven via CYW43 PIO-SPI co-processor interface |
-| **GP23** | CYW43 WL_REG_ON | Wireless Power Enable | Internal |
-| **GP25** | CYW43 SPI CS | Wireless Chip Select | Internal (repurposed from LED on non-W Pico) |
-| **GP24 / GP29** | CYW43 DATA / CLK | Half-duplex PIO SPI | Internal |
-| **SWD Header** | Debug Probe | Optional Hardware Debugging & RTT Logs | `SWCLK`, `SWDIO`, `GND` |
+| **GP23** | CYW43 WL_REG_ON | Wireless Power Enable | Internal co-processor line |
+| **GP25** | CYW43 SPI CS | Wireless Chip Select | Internal co-processor line |
+| **GP24 / GP29** | CYW43 DATA / CLK | Half-duplex PIO SPI | Internal co-processor line |
+| **SWD Header** | Debug Probe | Hardware Debugging & RTT Logs | `SWCLK`, `SWDIO`, `GND` |
+
+---
+
+## To-Do List & Roadmap
+
+### Reliability & Code Audit ([#12](https://github.com/Strange500/pico-ledger/issues/12))
+- [ ] **OLED I2C Fault Tolerance**: Handle I2C flush transmission errors gracefully without panicking the MCU (`src/tasks/display.rs`).
+- [ ] **Cryptographic Self-Test Enforcement**: Halt or enter safe panic mode on boot if BIP-39 test vector validation fails (`src/main.rs`).
+- [ ] **Display Event Wiring**: Connect `WORD_SIGNAL` and UI state updates so generated seed phrases render on the OLED display (`src/tasks/display.rs`).
+- [ ] **Button & LED Interaction**: Wire `BUTTON_SIGNAL` to LED control to allow toggling or deactivating status blinking.
+- [ ] **Full BIP-39 Checksum Pipeline**: Replace single-word modulo sampling with 128/256-bit entropy extraction and SHA-256 checksum derivation (`src/tasks/rng.rs`).
+- [ ] **Workspace & Simulator Fix**: Isolate `crates/ui` in cargo workspace configuration so `cargo check-ui` and desktop simulation run reliably.
+- [ ] **Zero-Allocation BIP-39 & Memory Security**: Remove 128 KB heap reservation by converting BIP-39 to zero-alloc fixed arrays, and zeroize secret entropy in RAM.
+- [ ] **UI Deduplication**: Share common screen views between bare-metal firmware and desktop simulator.
+- [ ] **Display Frame Rate Limiter**: Add frame interval pacing to prevent 100% CPU utilization during UI animations.
+
+### Hardware Wallet Milestones
+- [ ] **Step 3 — Entropy + BIP-39 Mnemonic Generation** ([#5](https://github.com/Strange500/pico-ledger/issues/5)): Secure TRNG sampling, seed generation, and 12/24-word pagination.
+- [ ] **Step 4 — BIP-32 Hierarchical Key Derivation** ([#6](https://github.com/Strange500/pico-ledger/issues/6)): Master key derivation and child key generation (secp256k1).
+- [ ] **Step 5 — Bech32 / P2WPKH Address Derivation** ([#7](https://github.com/Strange500/pico-ledger/issues/7)): Native SegWit address calculation and QR / on-screen validation.
+- [ ] **Step 6 — Transaction Signing** ([#8](https://github.com/Strange500/pico-ledger/issues/8)): Single-input / single-output Bitcoin transaction signing.
+- [ ] **Step 7 — Milestone: Offline Signer (PSBT)** ([#9](https://github.com/Strange500/pico-ledger/issues/9)): Parse Partially Signed Bitcoin Transactions (PSBT) and require manual button confirmation.
+- [ ] **Step 8 — Host Communication Protocol** ([#10](https://github.com/Strange500/pico-ledger/issues/10)): Framing and transport protocol over USB serial (CDC-ACM).
 
 ---
 
@@ -56,13 +85,34 @@ This will automatically:
 
 *(To exit the live log monitor, press `Ctrl+T` then `q`)*.
 
-### 2. Individual Commands
+### 2. Available Commands
 
 | Command (Nix shell) | Standalone (`nix run`) | Description |
 |---|---|---|
 | `flash-watch` | `nix run .#flash-watch` | Flashes firmware and immediately attaches live USB logs |
 | `flash-pico` | `nix run .#flash` | Builds, converts, and flashes firmware to Pico 2 W |
 | `watch-logs` | `nix run .#logs` | Connects `tio` to `/dev/ttyACM*` to view live logs without flashing |
+| `wokwi-cli` | `nix run .#wokwi-cli` | Runs simulation via Wokwi CLI |
+
+---
+
+## Testing & Host Simulator
+
+### Run Unit Tests
+Because the default target is bare-metal Cortex-M, execute unit tests on the host target (`x86_64`):
+
+```bash
+cargo test-host
+# Or directly:
+cargo test --package bip39 --target x86_64-unknown-linux-gnu
+```
+
+### Run Desktop UI Simulator
+Preview the OLED layout and animations on your host machine:
+
+```bash
+cargo run --package ui --target x86_64-unknown-linux-gnu
+```
 
 ---
 
@@ -77,7 +127,7 @@ rustup target add thumbv8m.main-none-eabihf
 # Linker used by rp-hal / embassy for stack-clobber-free placement across RAM banks
 cargo install flip-link
 
-# Optional: flashing / debugging over SWD
+# Flashing / debugging tools
 cargo install probe-rs-tools picotool
 ```
 
@@ -130,21 +180,6 @@ picocom -q /dev/ttyACM0
 ```
 *(Exit with `Ctrl+A` then `Ctrl+X`)*.
 
-### Using `cat`
-```bash
-cat /dev/ttyACM0
-```
-
-### Example Log Output
-```text
-[INFO] RP2350 (Pico 2 W) initialized - USB Serial logging active
-[INFO] Pico 2 W ready: LED ON by default. Press button to deactivate/reactivate.
-[INFO] Button (GP2) clicked: toggling LED state
-[INFO] LED deactivated (OFF)
-[INFO] Button (GP2) clicked: toggling LED state
-[INFO] LED reactivated (ON)
-```
-
 ---
 
 ## Optional: SWD Debugging with `probe-rs`
@@ -166,26 +201,29 @@ probe-rs attach --chip RP235x target/thumbv8m.main-none-eabihf/release/pico-ledg
 ```
 pico-ledger/
 ├── .cargo/
-│   └── config.toml           # Linker flags (flip-link, link.x, defmt.x) & target config
+│   └── config.toml           # Cross-compilation target, runner, and linker configurations
+├── crates/
+│   ├── bip39/                # BIP-39 mnemonic implementation, wordlist, and test vectors
+│   └── ui/                   # Host UI simulator (embedded-graphics-simulator)
 ├── firmware/
 │   └── nvram_rp2040.bin      # CYW43439 NVRAM parameter binary blob
 ├── src/
-│   └── main.rs               # Async entry point, tasks, and event loops
-├── build.rs                  # Linker search path script
+│   ├── main.rs               # Async entry point and Embassy task spawner
+│   ├── signals.rs            # Inter-task signals (BUTTON_SIGNAL, WORD_SIGNAL)
+│   ├── tasks/
+│   │   ├── button.rs         # GP2 debounced button detection task
+│   │   ├── display.rs        # SSD1306 OLED display async rendering task
+│   │   ├── rng.rs            # Hardware TRNG random word generation task
+│   │   ├── usb.rs            # USB CDC-ACM serial logger task
+│   │   └── wifi.rs           # CYW43 co-processor runner (drives onboard LED)
+│   └── ui/
+│       └── state.rs          # UI view hierarchies and screen state definitions
+├── build.rs                  # Linker script search path setup
 ├── memory.x                  # RP2350 Flash and RAM layout with boot headers
-├── Cargo.toml                # Dependencies (embassy-rp, cyw43, embassy-usb, etc.)
-├── flake.nix                 # Nix devShell, reproducible build, and flash scripts
-└── README.md                 # Project documentation
+├── flake.nix                 # Nix development shell and automated flash scripts
+├── diagram.json              # Wokwi simulation hardware wiring
+└── wokwi.toml                # Wokwi project configuration
 ```
-
-### Asynchronous Design Highlights
-- **No Blocking Loops**: Every delay and wait uses non-blocking async timers (`Timer::after(...).await`) and interrupt futures (`button.wait_for_falling_edge().await`).
-- **Concurrent Tasks**:
-  - `logger_task`: Manages USB CDC-ACM buffers and packet transfers.
-  - `cyw43_task`: Drives the SPI bus communication with the wireless co-processor.
-  - `button_task`: Performs interrupt-driven edge detection and contact debounce on `GP2`.
-  - `main`: Manages system initialization, default LED power, and the responsive `select` blink/deactivate loop.
-- **Race Prevention via `select`**: Rather than polling an atomic flag after delays, the blink loop races `Timer::after(delay)` against `BUTTON_SIGNAL.wait()`. Clicking the button deactivates the LED immediately.
 
 ---
 
@@ -206,12 +244,4 @@ Log out and log back in for group changes to take effect.
 ### RP2350 Drive Not Found
 Ensure you hold down the white **BOOTSEL** button while connecting the USB cable to the PC. The device will present itself as a mass storage volume named `RP2350`.
 
----
 
-## License
-
-Dual-licensed under either:
-- **[Apache License, Version 2.0](file:///home/strange/Documents/pico-ledger/LICENSE-APACHE-2.0)**
-- **[MIT License](file:///home/strange/Documents/pico-ledger/LICENSE-MIT)**
-
-at your option.
