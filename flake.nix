@@ -86,7 +86,7 @@
               !(builtins.elem (baseNameOf (toString name))
                 ["target" ".github" ".git"]);
           };
-          nativeBuildInputs = [toolchain pkgs.flip-link];
+          nativeBuildInputs = [toolchain pkgs.llvmPackages.clang-unwrapped pkgs.flip-link];
           buildPhase = ''
             # Nix builds run with an unwritable HOME; give cargo a writable home.
             export CARGO_HOME="$(pwd)/.cargo-home"
@@ -103,7 +103,7 @@
         };
         flash-script = pkgs.writeShellScriptBin "flash-pico" ''
           set -euo pipefail
-          export PATH="${pkgs.lib.makeBinPath [toolchain pkgs.flip-link pkgs.picotool pkgs.util-linux pkgs.coreutils]}:$PATH"
+          export PATH="${pkgs.lib.makeBinPath [toolchain pkgs.llvmPackages.clang-unwrapped pkgs.flip-link pkgs.picotool pkgs.util-linux pkgs.coreutils]}:$PATH"
 
           echo "== 1. Building release firmware =="
           cargo build --release --target thumbv8m.main-none-eabihf
@@ -215,6 +215,7 @@
           name = "pico-ledger-dev";
           packages = [
             toolchain
+            pkgs.llvmPackages.clang-unwrapped
             pkgs.flip-link
             pkgs.probe-rs-tools
             pkgs.picotool

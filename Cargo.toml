@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/bip39"]
+members = ["."]
 
 [package]
 edition = "2021"
@@ -8,7 +8,7 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-bip39 = { path = "crates/bip39" }
+bip39 = { version = "=3.0.0", default-features = false }
 cortex-m-rt = "0.7"
 
 ssd1306 = { version = "0.10.0", features = ["async"] }
@@ -40,6 +40,7 @@ log = "0.4.34"
 embedded-alloc = "0.7.0"
 sha2 = { version = "0.11.1", default-features = false }
 buoyant = "0.7.1"
+bitcoin = { version = "0.32.102", default-features = false }
 
 # but you can use any BSP.
 # If you're not going to use a Board Support Package you'll need these:
