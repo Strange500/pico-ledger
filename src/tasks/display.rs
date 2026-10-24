@@ -1,4 +1,3 @@
-use alloc::string::ToString;
 use buoyant::render_target::RenderTarget;
 use buoyant::{
     app::App, primitives::Size, render_target::EmbeddedGraphicsRenderTarget, view::prelude::*,
@@ -6,14 +5,21 @@ use buoyant::{
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Timer};
-use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor, prelude::*};
+use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
-use crate::signals::WORD_SIGNAL;
+use crate::ui::state::Screen;
 
-#[derive(Clone, Default)]
-struct State {
-    count: i32,
+pub struct State {
+    current_screen: Screen,
+}
+
+impl State {
+    fn new() -> Self {
+        Self {
+            current_screen: Screen::Home,
+        }
+    }
 }
 
 /// Background task: drive the SSD1306 128x64 OLED over I2C (GP4 SDA, GP5 SCL).
@@ -22,8 +28,8 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
     let interface = I2CDisplayInterface::new(i2c);
     let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
-    let size = Size::new(display.size().width as u32, display.size().height as u32);
-    let mut app = App::new(State::default(), size, counter_view);
+    let size = Size::new(display.size().width, display.size().height);
+    let mut app = App::new(State::new(), size, view);
 
     // Retry init a few times — the display may not be ready immediately after power-on.
     let mut initialized = false;
@@ -60,11 +66,6 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
     }
 }
 
-fn counter_view(state: &State) -> impl View<BinaryColor, State> + use<> {
-    VStack::new((
-        Text::new("Counter", &FONT_6X10),
-        Divider::new(1),
-        Spacer::default(),
-        Text::new("Press > to increment", &FONT_6X10),
-    ))
+pub fn view(state: &State) -> impl View<BinaryColor, State> + use<> {
+    state.current_screen.view()
 }

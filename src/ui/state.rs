@@ -1,19 +1,21 @@
 use buoyant::{match_view, view::prelude::*};
 use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor, prelude::*};
 
+use crate::tasks::display::State;
+
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
     Home,
     SeedPhrase {
-        words: [&'static str; 3],
+        words: &'static [&'static str],
         words_per_page: usize,
         page: usize,
     },
 }
 
 impl Screen {
-    pub fn view(&self) -> impl View<BinaryColor, ()> + use<'_> {
+    pub fn view(&self) -> impl View<BinaryColor, State> + use<> {
         match_view!(
             self,
         {
@@ -23,15 +25,15 @@ impl Screen {
                 words_per_page,
                 page,
             } => {
-                let start = page * words_per_page;
-                let end = (start + words_per_page).min(words.len());
+                let start = *page * *words_per_page;
+                let end = (start + *words_per_page).min(words.len());
                 seed_phrase_view(&words[start..end])
             }
         })
     }
 }
 
-fn home_view() -> impl View<BinaryColor, ()> {
+pub fn home_view() -> impl View<BinaryColor, State> {
     VStack::new((
         Text::new("Home", &FONT_6X10),
         Divider::new(1),
@@ -44,7 +46,7 @@ fn home_view() -> impl View<BinaryColor, ()> {
     .padding(Edges::Vertical, 2)
 }
 
-fn seed_phrase_view<'a>(words: &'a [&'static str]) -> impl View<BinaryColor, ()> + 'a {
+pub fn seed_phrase_view(words: &'static [&'static str]) -> impl View<BinaryColor, State> + use<> {
     VStack::new((
         Text::new("Seed Phrase", &FONT_6X10),
         Divider::new(1),
