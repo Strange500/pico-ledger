@@ -19,6 +19,8 @@ use embedded_alloc::LlffHeap as Heap;
 use panic_probe as _;
 use static_cell::StaticCell;
 
+use crate::signals::SEED_PHRASE;
+
 #[macro_use]
 mod macros;
 pub mod crypto;
@@ -59,19 +61,23 @@ async fn main(spawner: Spawner) {
         log_info!("BIP-39 self-tests verified (test vectors OK)");
     }
 
+    let mut trng = Trng::new(p.TRNG, Irqs, TrngConfig::default());
+    let mut entropy = [0u8; 32];
+    trng.fill_bytes(&mut entropy).await;
+    let generated_seed = crypto::entropy_to_words(&entropy).unwrap();
+    SEED_PHRASE.lock(|seed| *seed.borrow_mut() = Some(generated_seed));
+
     // 2. Démarrage de l'affichage OLED SSD1306 (GP4 = SDA, GP5 = SCL)
     let mut i2c_config = I2cConfig::default();
     i2c_config.frequency = 400_000;
     let i2c = I2c::new_async(p.I2C0, p.PIN_5, p.PIN_4, Irqs, i2c_config);
     spawner.spawn(tasks::display::display_task(i2c).unwrap());
 
-    // 3. Démarrage du générateur de mots TRNG
-    let trng = Trng::new(p.TRNG, Irqs, TrngConfig::default());
-    spawner.spawn(tasks::rng::rd_word(trng).unwrap());
-
     // 4. Démarrage de la surveillance du bouton sur GP2
-    let button = Input::new(p.PIN_2, Pull::Up);
-    spawner.spawn(tasks::button::button_task(button).unwrap());
+    let button_next = Input::new(p.PIN_2, Pull::Up);
+    let button_back = Input::new(p.PIN_3, Pull::Up);
+    spawner.spawn(tasks::button::button_next_task(button_next).unwrap());
+    spawner.spawn(tasks::button::button_back_task(button_back).unwrap());
 
     // 5. Initialisation du contrôleur sans fil CYW43 (qui pilote la LED sur Pico 2 W/WH)
     static FW: cyw43::Aligned<cyw43::A4, [u8; 231077]> =

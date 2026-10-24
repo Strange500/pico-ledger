@@ -8,19 +8,8 @@ use embassy_time::{Duration, Timer};
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
-use crate::ui::state::Screen;
-
-pub struct State {
-    current_screen: Screen,
-}
-
-impl State {
-    fn new() -> Self {
-        Self {
-            current_screen: Screen::Home,
-        }
-    }
-}
+use crate::signals::MESSAGE_QUEUE;
+use crate::ui::state::AppModel;
 
 /// Background task: drive the SSD1306 128x64 OLED over I2C (GP4 SDA, GP5 SCL).
 #[embassy_executor::task]
@@ -29,7 +18,7 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
     let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
     let size = Size::new(display.size().width, display.size().height);
-    let mut app = App::new(State::new(), size, view);
+    let mut app = App::new(AppModel::Home, size, view);
 
     // Retry init a few times — the display may not be ready immediately after power-on.
     let mut initialized = false;
@@ -60,12 +49,12 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
                 .display_mut()
                 .flush()
                 .expect("Failed to flush display buffer");
-        } else {
-            Timer::after(Duration::from_millis(50)).await;
         }
+        let msg = MESSAGE_QUEUE.receive().await;
+        app.state_mut().update(msg);
     }
 }
 
-pub fn view(state: &State) -> impl View<BinaryColor, State> + use<> {
-    state.current_screen.view()
+pub fn view(state: &AppModel) -> impl View<BinaryColor, AppModel> + use<> {
+    state.view()
 }
