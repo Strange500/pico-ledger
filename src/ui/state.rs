@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use buoyant::{match_view, view::prelude::*};
 use embedded_graphics::mono_font::iso_8859_14::FONT_6X12;
 use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor};
@@ -73,6 +75,19 @@ pub fn seed_phrase_view(
     ))
 }
 
+pub fn loading_view() -> impl View<BinaryColor, AppModel> {
+    ZStack::new((
+        Capsule.foreground_color(BinaryColor::Off),
+        Circle
+            .foreground_color(BinaryColor::On)
+            .padding(Edges::All, 2)
+            .animated(Animation::ease_out(Duration::from_millis(120)), true),
+    ))
+    .with_alignment(if is_on { Trailing } else { Leading })
+    .frame_sized(50, 25)
+    .geometry_group()
+}
+
 pub enum AppModel {
     Init,
     PasswordCreation {
@@ -84,6 +99,8 @@ pub enum AppModel {
         words: [&'static str; 24],
         step: usize,
     },
+    Loading,
+    
 }
 
 impl AppModel {
@@ -103,7 +120,14 @@ impl AppModel {
                         }
                     }
                     AppModel::Home => {
-                        // Do nothing, as we're already on the home screen
+                        SIGNER_CHANNEL
+                            .try_send(SignerMessage::TestSeed {
+                                password: ["0", "0", "0", "0", "0", "0", "0", "0"],
+                            })
+                            .unwrap_or_else(|_| log_info!("Failed to send GenerateSeed message"));
+                    }
+                    AppModel::Loading => {
+                        // Do nothing, as we're already in the loading state
                     }
                     AppModel::SeedPhrase { step, .. } => {
                         if *step < 7 {
@@ -130,6 +154,9 @@ impl AppModel {
                     AppModel::Home => {
                         // Do nothing, as we're already on the home screen
                     }
+                    AppModel::Loading => {
+                        // Do nothing, as we're already in the loading state
+                    }
                     AppModel::SeedPhrase { step, .. } => {
                         if *step > 0 {
                             *step -= 1;
@@ -152,14 +179,12 @@ impl AppModel {
                                 password: *password,
                             })
                             .unwrap_or_else(|_| log_info!("Failed to send GenerateSeed message"));
+                        *self = AppModel::Loading;
                     }
                 }
             }
             Message::SeedPhraseGenerated(words) => match self {
-                AppModel::PasswordCreation {
-                    password: _,
-                    digit: _,
-                } => {
+                AppModel::Loading => {
                     *self = AppModel::SeedPhrase { words, step: 0 };
                 }
                 _ => {
@@ -184,6 +209,9 @@ impl AppModel {
                 },
                 AppModel::PasswordCreation { password, digit } => {
                     password_creation_view(*password, *digit)
+                },
+                AppModel::Loading => {
+                    loading_view()
                 }
 
             }

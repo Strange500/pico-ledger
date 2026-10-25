@@ -12,6 +12,7 @@ pub static MESSAGE_QUEUE: Channel<CriticalSectionRawMutex, Message, 4> = Channel
 
 pub enum SignerMessage {
     GenerateSeed { password: [&'static str; 8] },
+    TestSeed { password: [&'static str; 8] },
 }
 
 pub static SIGNER_CHANNEL: Channel<CriticalSectionRawMutex, SignerMessage, 1> = Channel::new();
