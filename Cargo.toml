@@ -41,6 +41,10 @@ embedded-alloc = "0.7.0"
 sha2 = { version = "0.11.1", default-features = false }
 buoyant = "0.7.1"
 bitcoin = { version = "0.32.102", default-features = false }
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc", "zeroize"] }
+zeroize = { version = "1.9.1", default-features = false, features = ["zeroize_derive"] }
+hmac = { version = "0.13.0", default-features = false }
+pbkdf2 = { version = "0.13.0", default-features = false, features = ["hmac"] }
 
 # but you can use any BSP.
 # If you're not going to use a Board Support Package you'll need these:
