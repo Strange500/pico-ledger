@@ -1,5 +1,3 @@
-use alloc::string::String;
-use buoyant::app::App;
 use buoyant::{match_view, view::prelude::*};
 use embedded_graphics::mono_font::iso_8859_14::FONT_6X12;
 use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor};
@@ -102,13 +100,6 @@ impl AppModel {
                     AppModel::PasswordCreation { password, digit } => {
                         if password.iter().any(|&p| p.is_empty()) {
                             *digit = if *digit == 9 { 0 } else { *digit + 1 };
-                            return;
-                        }
-                        match SIGNER_CHANNEL.try_send(SignerMessage::GenerateSeed {
-                            password: *password,
-                        }) {
-                            Ok(_) => log_info!("Requested seed phrase generation."),
-                            Err(_) => log_info!("Failed to request seed phrase generation."),
                         }
                     }
                     AppModel::Home => {
@@ -129,7 +120,7 @@ impl AppModel {
                     AppModel::Init => {
                         // Do nothing, as we're already on the initial screen
                     }
-                    AppModel::PasswordCreation { password, digit } => {
+                    AppModel::PasswordCreation { password: _, digit } => {
                         if *digit > 0 {
                             *digit -= 1;
                         } else {
@@ -151,15 +142,24 @@ impl AppModel {
             }
             Message::Select => {
                 if let AppModel::PasswordCreation { password, digit } = self {
-                    if *digit < 8 {
-                        // For demonstration, we just fill the password with "1" for each digit
-                        password[*digit as usize] = "1";
-                        *digit += 1;
+                    if password.iter().any(|&p| p.is_empty()) {
+                        let index_empty = password.iter().position(|&p| p.is_empty()).unwrap();
+                        password[index_empty] = DIGITS[*digit as usize];
+                    }
+                    if password.iter().all(|&p| !p.is_empty()) {
+                        SIGNER_CHANNEL
+                            .try_send(SignerMessage::GenerateSeed {
+                                password: *password,
+                            })
+                            .unwrap_or_else(|_| log_info!("Failed to send GenerateSeed message"));
                     }
                 }
             }
             Message::SeedPhraseGenerated(words) => match self {
-                AppModel::Init => {
+                AppModel::PasswordCreation {
+                    password: _,
+                    digit: _,
+                } => {
                     *self = AppModel::SeedPhrase { words, step: 0 };
                 }
                 _ => {

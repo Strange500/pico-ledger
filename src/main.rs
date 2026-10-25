@@ -63,8 +63,7 @@ async fn main(spawner: Spawner) {
     // 3. Démarrage de la surveillance du bouton sur GP2
     let button_next = Input::new(p.PIN_2, Pull::Up);
     let button_back = Input::new(p.PIN_3, Pull::Up);
-    spawner.spawn(tasks::button::button_next_task(button_next).unwrap());
-    spawner.spawn(tasks::button::button_back_task(button_back).unwrap());
+    spawner.spawn(tasks::button::dual_button_task(button_back, button_next).unwrap());
 
     // 4. Initialisation du contrôleur sans fil CYW43 (qui pilote la LED sur Pico 2 W/WH)
     static FW: cyw43::Aligned<cyw43::A4, [u8; 231077]> =
