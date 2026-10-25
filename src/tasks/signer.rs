@@ -11,7 +11,7 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
     loop {
         let msg = SIGNER_CHANNEL.receive().await;
         match msg {
-            SignerMessage::GenerateSeed => {
+            SignerMessage::GenerateSeed { password } => {
                 if seed.is_some() {
                     log_info!("Seed phrase already generated, skipping generation.");
                     continue;
