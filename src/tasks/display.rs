@@ -18,7 +18,7 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
     let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
     let size = Size::new(display.size().width, display.size().height);
-    let mut app = App::new(AppModel::Home, size, view);
+    let mut app = App::new(AppModel::Init, size, view);
 
     // Retry init a few times — the display may not be ready immediately after power-on.
     let mut initialized = false;

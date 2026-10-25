@@ -19,11 +19,8 @@ use embedded_alloc::LlffHeap as Heap;
 use panic_probe as _;
 use static_cell::StaticCell;
 
-use crate::signals::SEED_PHRASE;
-
 #[macro_use]
 mod macros;
-pub mod crypto;
 mod signals;
 mod tasks;
 mod ui;
@@ -54,18 +51,8 @@ async fn main(spawner: Spawner) {
 
     log_info!("RP2350 (Pico 2 WH) booted - USB serial active");
 
-    // Validation des primitives cryptographiques BIP-39
-    if let Err(err) = crypto::run_self_tests() {
-        log_info!("BIP-39 self-test error: {}", err);
-    } else {
-        log_info!("BIP-39 self-tests verified (test vectors OK)");
-    }
-
-    let mut trng = Trng::new(p.TRNG, Irqs, TrngConfig::default());
-    let mut entropy = [0u8; 32];
-    trng.fill_bytes(&mut entropy).await;
-    let generated_seed = crypto::entropy_to_words(&entropy).unwrap();
-    SEED_PHRASE.lock(|seed| *seed.borrow_mut() = Some(generated_seed));
+    let trng = Trng::new(p.TRNG, Irqs, TrngConfig::default());
+    spawner.spawn(tasks::signer::signer_task(trng).unwrap());
 
     // 2. Démarrage de l'affichage OLED SSD1306 (GP4 = SDA, GP5 = SCL)
     let mut i2c_config = I2cConfig::default();
@@ -73,13 +60,13 @@ async fn main(spawner: Spawner) {
     let i2c = I2c::new_async(p.I2C0, p.PIN_5, p.PIN_4, Irqs, i2c_config);
     spawner.spawn(tasks::display::display_task(i2c).unwrap());
 
-    // 4. Démarrage de la surveillance du bouton sur GP2
+    // 3. Démarrage de la surveillance du bouton sur GP2
     let button_next = Input::new(p.PIN_2, Pull::Up);
     let button_back = Input::new(p.PIN_3, Pull::Up);
     spawner.spawn(tasks::button::button_next_task(button_next).unwrap());
     spawner.spawn(tasks::button::button_back_task(button_back).unwrap());
 
-    // 5. Initialisation du contrôleur sans fil CYW43 (qui pilote la LED sur Pico 2 W/WH)
+    // 4. Initialisation du contrôleur sans fil CYW43 (qui pilote la LED sur Pico 2 W/WH)
     static FW: cyw43::Aligned<cyw43::A4, [u8; 231077]> =
         cyw43::Aligned(*cyw43_firmware::CYW43_43439A0);
     static CLM: cyw43::Aligned<cyw43::A4, [u8; 984]> =

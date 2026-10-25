@@ -1,19 +1,22 @@
 use buoyant::{match_view, view::prelude::*};
 use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor};
 
-use crate::signals::{Message, SEED_PHRASE};
+use crate::signals::{Message, SignerMessage, SIGNER_CHANNEL};
 
-pub fn home_view() -> impl View<BinaryColor, AppModel> {
+pub fn init_view() -> impl View<BinaryColor, AppModel> {
     VStack::new((
-        Text::new("Home", &FONT_6X10),
-        Divider::new(1),
+        Text::new("Bip39 Seed Generator", &FONT_6X10),
         Spacer::default(),
-        Text::new("Welcome to Pico Ledger!", &FONT_6X10),
-        Spacer::default(),
-        Text::new("Press > to start", &FONT_6X10),
+        Text::new("Press left to generate a new seed phrase", &FONT_6X10),
     ))
     .padding(Edges::Horizontal, 4)
     .padding(Edges::Vertical, 2)
+}
+
+pub fn home_view() -> impl View<BinaryColor, AppModel> {
+    VStack::new((Text::new("Home Screen", &FONT_6X10), Spacer::default()))
+        .padding(Edges::Horizontal, 4)
+        .padding(Edges::Vertical, 2)
 }
 
 static PAGES_24: [&str; 8] = [
@@ -48,10 +51,11 @@ pub fn seed_phrase_view(
 }
 
 pub enum AppModel {
+    Init,
     Home,
     SeedPhrase {
-        step: usize,
         words: [&'static str; 24],
+        step: usize,
     },
 }
 
@@ -60,21 +64,18 @@ impl AppModel {
         match message {
             Message::Next => {
                 match self {
+                    AppModel::Init => match SIGNER_CHANNEL.try_send(SignerMessage::GenerateSeed) {
+                        Ok(_) => log_info!("Requested seed phrase generation."),
+                        Err(_) => log_info!("Failed to request seed phrase generation."),
+                    },
                     AppModel::Home => {
-                        let seed_words = SEED_PHRASE
-                            .lock(|seed| *seed.borrow())
-                            .unwrap_or(["error"; 24]);
-                        // Transition to SeedPhrase with example words
-                        *self = AppModel::SeedPhrase {
-                            step: 0,
-                            words: seed_words,
-                        };
+                        // Do nothing, as we're already on the home screen
                     }
-                    AppModel::SeedPhrase { step, words } => {
-                        if *step < ((words.len() / 3) - 1) {
+                    AppModel::SeedPhrase { step, .. } => {
+                        if *step < 7 {
                             *step += 1;
                         } else {
-                            // Reset to Home after last page
+                            // Go back to Home after the last page
                             *self = AppModel::Home;
                         }
                     }
@@ -84,12 +85,17 @@ impl AppModel {
                 if let AppModel::SeedPhrase { step, .. } = self {
                     if *step > 0 {
                         *step -= 1;
-                    } else {
-                        // Go back to Home if on the first page
-                        *self = AppModel::Home;
                     }
                 }
             }
+            Message::SeedPhraseGenerated(words) => match self {
+                AppModel::Init => {
+                    *self = AppModel::SeedPhrase { words, step: 0 };
+                }
+                _ => {
+                    log_info!("Received seed phrase while not on Home screen, ignoring.");
+                }
+            },
         }
     }
 
@@ -97,12 +103,13 @@ impl AppModel {
         match_view!(
             self,
             {
+                AppModel::Init => init_view(),
                 AppModel::Home => home_view(),
                 AppModel::SeedPhrase { step, words } => {
                     let start = *step * 3;
-                    let w1 = words.get(start).unwrap_or(&"");
-                    let w2 = words.get(start + 1).unwrap_or(&"");
-                    let w3 = words.get(start + 2).unwrap_or(&"");
+                    let w1 = words[start];
+                    let w2 = words[start + 1];
+                    let w3 = words[start + 2];
                     seed_phrase_view(w1, w2, w3, *step)
                 }
             }
