@@ -4,7 +4,7 @@ use embedded_graphics::mono_font::iso_8859_14::FONT_6X12;
 use embedded_graphics::pixelcolor::BinaryColor;
 
 use crate::signals::{Message, SignerMessage, SIGNER_CHANNEL};
-use crate::ui::screens::loading_screen::LoadingScreen;
+use crate::ui::screens::loading_screen::{LoadingReason, LoadingScreen};
 use crate::ui::state::AppModel;
 
 static DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
@@ -67,7 +67,9 @@ impl PasswordCreationScreen {
                             password: self.password,
                         })
                         .unwrap_or_else(|_| log_info!("Failed to send GenerateSeed message"));
-                    Some(AppModel::Loading(LoadingScreen::new()))
+                    Some(AppModel::Loading(LoadingScreen::new(
+                        LoadingReason::GeneratingSeedPhrase,
+                    )))
                 } else {
                     None
                 }

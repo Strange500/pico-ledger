@@ -64,6 +64,7 @@ fn decrypt_entropy(
 #[embassy_executor::task]
 pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
     let mut encrypted_wallet: Option<(Vec<u8>, [u8; 12])> = None;
+    let mut pswr: Option<[&'static str; 8]> = None;
     loop {
         let msg = SIGNER_CHANNEL.receive().await;
         match msg {
@@ -85,23 +86,44 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                     encrypt_entropy(&entropy, &password, &mut trng).await;
 
                 encrypted_wallet = Some((ciphertext, nonce_bytes));
+                pswr = Some(password);
                 entropy.zeroize();
             }
-            SignerMessage::TestSeed { password } => {
+            SignerMessage::Lock => {
+                pswr = None;
+                log_info!("Device locked. Password cleared from memory.");
+            }
+            SignerMessage::CheckPassword { password } => {
                 if let Some((ciphertext, nonce_bytes)) = &encrypted_wallet {
                     match decrypt_entropy(ciphertext, &password, nonce_bytes) {
-                        Ok(entropy) => {
-                            let mnemonic = Mnemonic::from_entropy(&entropy)
-                                .expect("Failed to generate seed phrase from decrypted entropy");
-                            let words = mnemonic.words().collect::<Vec<_>>();
-                            log::info!("Decrypted seed phrase: {:?}", words);
+                        Ok(_) => {
+                            MESSAGE_QUEUE.send(Message::PasswordChecked(true)).await;
+                            pswr = Some(password);
                         }
                         Err(err) => {
-                            log_info!("Decryption failed: {}", err);
+                            log_info!("Password check failed: {}", err);
+                            MESSAGE_QUEUE.send(Message::PasswordChecked(false)).await;
                         }
                     }
                 } else {
                     log_info!("No encrypted wallet found. Generate a seed phrase first.");
+                }
+            }
+            SignerMessage::Test => {
+                // try to decrypt with the stored password if it exists
+                if let (Some((ciphertext, nonce_bytes)), Some(password)) =
+                    (&encrypted_wallet, &pswr)
+                {
+                    match decrypt_entropy(ciphertext, password, nonce_bytes) {
+                        Ok(_) => {
+                            log_info!("Test decryption successful.");
+                        }
+                        Err(err) => {
+                            log_info!("Test decryption failed: {}", err);
+                        }
+                    }
+                } else {
+                    log_info!("No encrypted wallet or password found.");
                 }
             }
         }

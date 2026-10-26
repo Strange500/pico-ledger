@@ -19,6 +19,8 @@ use embedded_alloc::LlffHeap as Heap;
 use panic_probe as _;
 use static_cell::StaticCell;
 
+use crate::tasks::lock::lock_task;
+
 #[macro_use]
 mod macros;
 mod signals;
@@ -95,6 +97,8 @@ async fn main(spawner: Spawner) {
     control
         .set_power_management(cyw43::PowerManagementMode::None)
         .await;
+
+    spawner.spawn(lock_task().unwrap());
 
     log_info!("Pico 2 WH ready — LED blinking, OLED active.");
 

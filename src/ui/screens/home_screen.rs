@@ -21,16 +21,11 @@ impl HomeScreen {
     }
 
     pub fn update(&mut self, message: Message) -> Option<AppModel> {
-        match message {
-            Message::Next => {
-                SIGNER_CHANNEL
-                    .try_send(SignerMessage::TestSeed {
-                        password: ["0", "0", "0", "0", "0", "0", "0", "0"],
-                    })
-                    .unwrap_or_else(|_| log_info!("Failed to send GenerateSeed message"));
-                None
-            }
-            _ => None,
+        if let Message::Next = message {
+            SIGNER_CHANNEL.try_send(SignerMessage::Test).ok();
+            None
+        } else {
+            None
         }
     }
 }
