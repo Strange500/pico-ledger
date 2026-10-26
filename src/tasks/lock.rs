@@ -1,7 +1,7 @@
 use embassy_futures::select::{select, Either};
 use embassy_time::{Duration, Timer};
 
-use crate::signals::{Message, SignerMessage, ACTIVITY_SIGNAL, MESSAGE_QUEUE, SIGNER_CHANNEL};
+use crate::signals::{Message, ACTIVITY_SIGNAL, MESSAGE_QUEUE};
 
 #[embassy_executor::task]
 pub async fn lock_task() -> ! {
