@@ -1,171 +1,51 @@
 use buoyant::{match_view, view::prelude::*};
-use embedded_graphics::mono_font::iso_8859_14::FONT_6X12;
-use embedded_graphics::{mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor};
+use embedded_graphics::pixelcolor::BinaryColor;
 
-use crate::signals::{Message, SignerMessage, SIGNER_CHANNEL};
-
-pub fn init_view() -> impl View<BinaryColor, AppModel> {
-    VStack::new((
-        Text::new("Bip39 Seed Generator", &FONT_6X10),
-        Spacer::default(),
-        Text::new("Press left to generate a new seed phrase", &FONT_6X10),
-    ))
-    .padding(Edges::Horizontal, 4)
-    .padding(Edges::Vertical, 2)
-}
-
-pub fn home_view() -> impl View<BinaryColor, AppModel> {
-    VStack::new((Text::new("Home Screen", &FONT_6X10), Spacer::default()))
-        .padding(Edges::Horizontal, 4)
-        .padding(Edges::Vertical, 2)
-}
-
-static DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
-
-pub fn password_creation_view(
-    password: [&'static str; 8],
-    digit: u8,
-) -> impl View<BinaryColor, AppModel> {
-    VStack::new((
-        Text::new("Create Password", &FONT_6X10),
-        Divider::new(1),
-        Spacer::default(),
-        Text::new(password.join(" "), &FONT_6X10),
-        Spacer::default(),
-        ForEach::<10>::new_horizontal(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], move |i| {
-            if *i == digit as usize {
-                Text::new(DIGITS[*i], &FONT_6X12)
-            } else {
-                Text::new(DIGITS[*i], &FONT_6X10)
-            }
-        }),
-    ))
-}
-
-static PAGES_24: [&str; 8] = [
-    "Words 1-3 of 24",
-    "Words 4-6 of 24",
-    "Words 7-9 of 24",
-    "Words 10-12 of 24",
-    "Words 13-15 of 24",
-    "Words 16-18 of 24",
-    "Words 19-21 of 24",
-    "Words 22-24 of 24",
-];
-
-pub fn seed_phrase_view(
-    w1: &'static str,
-    w2: &'static str,
-    w3: &'static str,
-    page: usize,
-) -> impl View<BinaryColor, AppModel> + use<> {
-    VStack::new((
-        Text::new("Seed Phrase", &FONT_6X10),
-        Divider::new(1),
-        Spacer::default(),
-        Text::new(w1, &FONT_6X10),
-        Text::new(w2, &FONT_6X10),
-        Text::new(w3, &FONT_6X10),
-        Spacer::default(),
-        Text::new(PAGES_24[page], &FONT_6X10),
-        Spacer::default(),
-        Text::new("Press left to continue", &FONT_6X10),
-    ))
-}
+use crate::signals::{Message, SignerMessage, ACTIVITY_SIGNAL, SIGNER_CHANNEL};
+use crate::ui::screens::lockscreen::LockScreen;
+use crate::ui::screens::{
+    home_screen::HomeScreen, init_screen::InitScreen, loading_screen::LoadingScreen,
+    password_creation_screen::PasswordCreationScreen, seed_phrase_screen::SeedPhraseScreen,
+};
 
 pub enum AppModel {
-    Init,
-    PasswordCreation {
-        password: [&'static str; 8],
-        digit: u8,
-    },
-    Home,
-    SeedPhrase {
-        words: [&'static str; 24],
-        step: usize,
-    },
+    Init(InitScreen),
+    PasswordCreation(PasswordCreationScreen),
+    Loading(LoadingScreen),
+    SeedPhrase(SeedPhraseScreen),
+    Home(HomeScreen),
+    Lock(LockScreen),
 }
 
 impl AppModel {
     pub fn update(&mut self, message: Message) {
-        match message {
-            Message::Next => {
-                match self {
-                    AppModel::Init => {
-                        *self = AppModel::PasswordCreation {
-                            password: ["", "", "", "", "", "", "", ""],
-                            digit: 0,
-                        };
-                    }
-                    AppModel::PasswordCreation { password, digit } => {
-                        if password.iter().any(|&p| p.is_empty()) {
-                            *digit = if *digit == 9 { 0 } else { *digit + 1 };
-                        }
-                    }
-                    AppModel::Home => {
-                        // Do nothing, as we're already on the home screen
-                    }
-                    AppModel::SeedPhrase { step, .. } => {
-                        if *step < 7 {
-                            *step += 1;
-                        } else {
-                            // Go back to Home after the last page
-                            *self = AppModel::Home;
-                        }
-                    }
-                }
+        ACTIVITY_SIGNAL.signal(());
+        log_info!("Received message: ");
+        if let Message::Lock = message {
+            if !matches!(
+                self,
+                AppModel::Init(_)
+                    | AppModel::PasswordCreation(_)
+                    | AppModel::SeedPhrase(_)
+                    | AppModel::Lock(_)
+            ) {
+                SIGNER_CHANNEL.try_send(SignerMessage::Lock).ok();
+                *self = AppModel::Lock(LockScreen::new());
             }
-            Message::Back => {
-                match self {
-                    AppModel::Init => {
-                        // Do nothing, as we're already on the initial screen
-                    }
-                    AppModel::PasswordCreation { password: _, digit } => {
-                        if *digit > 0 {
-                            *digit -= 1;
-                        } else {
-                            *digit = 9;
-                        }
-                    }
-                    AppModel::Home => {
-                        // Do nothing, as we're already on the home screen
-                    }
-                    AppModel::SeedPhrase { step, .. } => {
-                        if *step > 0 {
-                            *step -= 1;
-                        } else {
-                            // Go back to Home if on the first page
-                            *self = AppModel::Home;
-                        }
-                    }
-                }
-            }
-            Message::Select => {
-                if let AppModel::PasswordCreation { password, digit } = self {
-                    if password.iter().any(|&p| p.is_empty()) {
-                        let index_empty = password.iter().position(|&p| p.is_empty()).unwrap();
-                        password[index_empty] = DIGITS[*digit as usize];
-                    }
-                    if password.iter().all(|&p| !p.is_empty()) {
-                        SIGNER_CHANNEL
-                            .try_send(SignerMessage::GenerateSeed {
-                                password: *password,
-                            })
-                            .unwrap_or_else(|_| log_info!("Failed to send GenerateSeed message"));
-                    }
-                }
-            }
-            Message::SeedPhraseGenerated(words) => match self {
-                AppModel::PasswordCreation {
-                    password: _,
-                    digit: _,
-                } => {
-                    *self = AppModel::SeedPhrase { words, step: 0 };
-                }
-                _ => {
-                    log_info!("Received seed phrase while not on Home screen, ignoring.");
-                }
-            },
+            return;
+        }
+
+        let next = match self {
+            AppModel::Init(screen) => screen.update(message),
+            AppModel::PasswordCreation(screen) => screen.update(message),
+            AppModel::Loading(screen) => screen.update(message),
+            AppModel::SeedPhrase(screen) => screen.update(message),
+            AppModel::Home(screen) => screen.update(message),
+            AppModel::Lock(screen) => screen.update(message),
+        };
+
+        if let Some(new_model) = next {
+            *self = new_model;
         }
     }
 
@@ -173,19 +53,12 @@ impl AppModel {
         match_view!(
             self,
             {
-                AppModel::Init => init_view(),
-                AppModel::Home => home_view(),
-                AppModel::SeedPhrase { step, words } => {
-                    let start = *step * 3;
-                    let w1 = words[start];
-                    let w2 = words[start + 1];
-                    let w3 = words[start + 2];
-                    seed_phrase_view(w1, w2, w3, *step)
-                },
-                AppModel::PasswordCreation { password, digit } => {
-                    password_creation_view(*password, *digit)
-                }
-
+                AppModel::Init(screen) => screen.view(),
+                AppModel::PasswordCreation(screen) => screen.view(),
+                AppModel::Loading(screen) => screen.view(),
+                AppModel::SeedPhrase(screen) => screen.view(),
+                AppModel::Home(screen) => screen.view(),
+                AppModel::Lock(screen) => screen.view(),
             }
         )
     }
