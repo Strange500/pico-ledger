@@ -22,7 +22,19 @@ impl HomeScreen {
 
     pub fn update(&mut self, message: Message) -> Option<AppModel> {
         if let Message::Next = message {
-            SIGNER_CHANNEL.try_send(SignerMessage::Test).ok();
+            let dummy_tx_hash = [1u8; 32];
+
+            SIGNER_CHANNEL
+                .try_send(SignerMessage::Sign {
+                    tx_hash: dummy_tx_hash,
+                    address_index: 1,
+                })
+                .ok();
+
+            log_info!("Sent SignerMessage::Sign to SIGNER_CHANNEL");
+            None
+        } else if let Message::TransactionSigned { signature } = message {
+            log::info!("Received signature: {:?}", signature);
             None
         } else {
             None

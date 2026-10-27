@@ -1,5 +1,12 @@
+use core::result;
+use core::str::FromStr;
+
+use alloc::format;
 use alloc::vec::Vec;
 use bip39::Mnemonic;
+use bitcoin::bip32::{DerivationPath, Xpriv};
+use bitcoin::key::Secp256k1;
+use bitcoin::secp256k1::Message as SecpMessage;
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use embassy_rp::peripherals::TRNG;
@@ -11,6 +18,7 @@ use zeroize::Zeroize;
 use crate::signals::{Message, SignerMessage, MESSAGE_QUEUE, SIGNER_CHANNEL};
 
 static SALT: &[u8] = b"pico-ledger-salt";
+static NETWORK: bitcoin::network::Network = bitcoin::network::Network::Testnet;
 
 fn derive_encryption_key(password: &[&'static str; 8]) -> [u8; 32] {
     let mut encryption_key = [0u8; 32];
@@ -64,7 +72,13 @@ fn decrypt_entropy(
 #[embassy_executor::task]
 pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
     let mut encrypted_wallet: Option<(Vec<u8>, [u8; 12])> = None;
+
+    // store master extended private key in memory after decryption for signing
+    let mut master_private: Option<[u8; 64]> = None;
     let mut pswr: Option<[&'static str; 8]> = None;
+
+    // Initialize the crypto context once
+    let secp = Secp256k1::signing_only();
     loop {
         let msg = SIGNER_CHANNEL.receive().await;
         match msg {
@@ -87,6 +101,7 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
 
                 encrypted_wallet = Some((ciphertext, nonce_bytes));
                 pswr = Some(password);
+                master_private = Some(mnemonic.to_seed_normalized(&password.join("")));
                 entropy.zeroize();
             }
             SignerMessage::Lock => {
@@ -124,6 +139,33 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                     }
                 } else {
                     log_info!("No encrypted wallet or password found.");
+                }
+            }
+            SignerMessage::Sign {
+                tx_hash,
+                address_index,
+            } => {
+                if let Some(master_private) = &master_private {
+                    let master_sxpriv =
+                        Xpriv::new_master(NETWORK, master_private).expect("Valid Seed");
+                    let path_str = format!("m/84'/0'/0'/0/{}", address_index);
+                    let path = DerivationPath::from_str(&path_str).expect("Valid path");
+
+                    let child_xpriv = master_sxpriv
+                        .derive_priv(&secp, &path)
+                        .expect("Derivation failed");
+                    let secret_key = child_xpriv.private_key;
+
+                    let message = SecpMessage::from_digest(tx_hash);
+                    let sig = secp.sign_ecdsa(&message, &secret_key);
+
+                    log::info!("Generated signature: {:?}", sig.serialize_compact());
+
+                    MESSAGE_QUEUE
+                        .send(Message::TransactionSigned {
+                            signature: sig.serialize_compact(),
+                        })
+                        .await;
                 }
             }
         }
