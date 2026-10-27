@@ -46,10 +46,10 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
             // Render animated transition between source and target trees
             app.render_animated(&mut target, &BinaryColor::On);
             // Clear for the next frame
-            target
-                .display_mut()
-                .flush()
-                .expect("Failed to flush display buffer");
+            match target.display_mut().flush() {
+                Ok(_) => {}
+                Err(_) => log_warn!("Failed to flush display buffer"),
+            }
         }
         let msg = MESSAGE_QUEUE.receive().await;
         app.state_mut().update(msg);

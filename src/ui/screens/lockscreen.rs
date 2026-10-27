@@ -73,20 +73,27 @@ impl LockScreen {
             }
             Message::Select => {
                 if self.password.iter().any(|&p| p.is_empty()) {
-                    let index_empty = self.password.iter().position(|&p| p.is_empty()).unwrap();
-                    self.password[index_empty] = DIGITS[self.digit as usize];
+                    match self.password.iter().position(|&p| p.is_empty()) {
+                        Some(index) => {
+                            self.password[index] = DIGITS[self.digit as usize];
+                        }
+                        None => {
+                            log_info!("No empty password field found");
+                        }
+                    }
                 }
                 if self.password.iter().all(|&p| !p.is_empty()) {
-                    SIGNER_CHANNEL
-                        .try_send(SignerMessage::CheckPassword {
-                            password: self.password,
-                        })
-                        .unwrap_or_else(|_| {
-                            log_info!("Failed to send checkPassword message to signer")
-                        });
-                    Some(AppModel::Loading(LoadingScreen::new(
-                        LoadingReason::CheckingPassword,
-                    )))
+                    match SIGNER_CHANNEL.try_send(SignerMessage::CheckPassword {
+                        password: self.password,
+                    }) {
+                        Ok(_) => Some(AppModel::Loading(LoadingScreen::new(
+                            LoadingReason::CheckingPassword,
+                        ))),
+                        Err(_) => {
+                            log_error!("Failed to send password check message");
+                            None
+                        }
+                    }
                 } else {
                     None
                 }

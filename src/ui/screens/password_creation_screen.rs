@@ -58,18 +58,23 @@ impl PasswordCreationScreen {
             }
             Message::Select => {
                 if self.password.iter().any(|&p| p.is_empty()) {
-                    let index_empty = self.password.iter().position(|&p| p.is_empty()).unwrap();
-                    self.password[index_empty] = DIGITS[self.digit as usize];
+                    let index_empty = self.password.iter().position(|&p| p.is_empty());
+                    if let Some(i) = index_empty {
+                        self.password[i] = DIGITS[self.digit as usize];
+                    }
                 }
                 if self.password.iter().all(|&p| !p.is_empty()) {
-                    SIGNER_CHANNEL
-                        .try_send(SignerMessage::GenerateSeed {
-                            password: self.password,
-                        })
-                        .unwrap_or_else(|_| log_info!("Failed to send GenerateSeed message"));
-                    Some(AppModel::Loading(LoadingScreen::new(
-                        LoadingReason::GeneratingSeedPhrase,
-                    )))
+                    match SIGNER_CHANNEL.try_send(SignerMessage::GenerateSeed {
+                        password: self.password,
+                    }) {
+                        Ok(_) => Some(AppModel::Loading(LoadingScreen::new(
+                            LoadingReason::GeneratingSeedPhrase,
+                        ))),
+                        Err(_) => {
+                            log_info!("Failed to send GenerateSeed message");
+                            None
+                        }
+                    }
                 } else {
                     None
                 }

@@ -1,4 +1,3 @@
-use core::result;
 use core::str::FromStr;
 
 use alloc::format;
@@ -22,14 +21,18 @@ static NETWORK: bitcoin::network::Network = bitcoin::network::Network::Testnet;
 
 fn derive_encryption_key(password: &[&'static str; 8]) -> [u8; 32] {
     let mut encryption_key = [0u8; 32];
-    pbkdf2::pbkdf2::<Hmac<Sha256>>(
+    match pbkdf2::pbkdf2::<Hmac<Sha256>>(
         password.join("").as_bytes(),
         SALT,
         100_000,
         &mut encryption_key,
-    )
-    .expect("Failed to derive encryption key");
-    encryption_key
+    ) {
+        Ok(_) => encryption_key,
+        Err(_) => {
+            log_error!("Failed to derive encryption key");
+            [0u8; 32]
+        }
+    }
 }
 
 async fn encrypt_entropy(
@@ -43,11 +46,13 @@ async fn encrypt_entropy(
     let nonce = Nonce::from(nonce_bytes);
 
     let cipher = ChaCha20Poly1305::new(&encryption_key.into());
-    let ciphertext = cipher
-        .encrypt(&nonce, entropy.as_ref())
-        .expect("Encryption failed");
-
-    (ciphertext, nonce_bytes)
+    match cipher.encrypt(&nonce, entropy.as_ref()) {
+        Ok(ciphertext) => (ciphertext, nonce_bytes),
+        Err(_) => {
+            log_error!("Encryption failed");
+            (Vec::new(), nonce_bytes)
+        }
+    }
 }
 
 fn decrypt_entropy(
@@ -89,13 +94,20 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                 }
                 let mut entropy = [0u8; 32];
                 trng.fill_bytes(&mut entropy).await;
-                let mnemonic =
-                    Mnemonic::from_entropy(&entropy).expect("Failed to generate seed phrase");
-                let words = mnemonic.words().collect::<Vec<_>>();
+                let Ok(mnemonic) = Mnemonic::from_entropy(&entropy) else {
+                    log_error!("Failed to generate mnemonic from entropy");
+                    continue;
+                };
+                // convert into [&'static str; 24] for sending through the channel, but handles the Result properly
+                let Ok(words): Result<[&'static str; 24], _> =
+                    mnemonic.words().collect::<Vec<_>>().try_into()
+                else {
+                    log_info!("Failed to convert mnemonic words into array");
+                    continue;
+                };
                 MESSAGE_QUEUE
-                    .send(Message::SeedPhraseGenerated(words.try_into().unwrap()))
+                    .send(Message::SeedPhraseGenerated(words))
                     .await;
-
                 let (ciphertext, nonce_bytes) =
                     encrypt_entropy(&entropy, &password, &mut trng).await;
 
@@ -146,14 +158,20 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                 address_index,
             } => {
                 if let Some(master_private) = &master_private {
-                    let master_sxpriv =
-                        Xpriv::new_master(NETWORK, master_private).expect("Valid Seed");
+                    let Ok(master_sxpriv) = Xpriv::new_master(NETWORK, master_private) else {
+                        log_error!("Failed to create master extended private key");
+                        continue;
+                    };
                     let path_str = format!("m/84'/0'/0'/0/{}", address_index);
-                    let path = DerivationPath::from_str(&path_str).expect("Valid path");
+                    let Ok(path) = DerivationPath::from_str(&path_str) else {
+                        log_error!("Failed to create derivation path");
+                        continue;
+                    };
 
-                    let child_xpriv = master_sxpriv
-                        .derive_priv(&secp, &path)
-                        .expect("Derivation failed");
+                    let Ok(child_xpriv) = master_sxpriv.derive_priv(&secp, &path) else {
+                        log_error!("Failed to derive child extended private key");
+                        continue;
+                    };
                     let secret_key = child_xpriv.private_key;
 
                     let message = SecpMessage::from_digest(tx_hash);

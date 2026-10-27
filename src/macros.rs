@@ -6,3 +6,19 @@ macro_rules! log_info {
         ::log::info!($($arg)*);
     }};
 }
+
+#[macro_export]
+macro_rules! log_warn {
+    ($($arg:tt)*) => {{
+        ::defmt::warn!($($arg)*);
+        ::log::warn!($($arg)*);
+    }};
+}
+
+#[macro_export]
+macro_rules! log_error {
+    ($($arg:tt)*) => {{
+        ::defmt::error!($($arg)*);
+        ::log::error!($($arg)*);
+    }};
+}
