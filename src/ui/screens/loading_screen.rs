@@ -13,21 +13,21 @@ use crate::ui::screens::seed_phrase_screen::SeedPhraseScreen;
 use crate::ui::state::AppModel;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LoadingReason {
+pub(crate) enum LoadingReason {
     GeneratingSeedPhrase,
     CheckingPassword,
 }
 
-pub struct LoadingScreen {
+pub(crate) struct LoadingScreen {
     loading_reason: LoadingReason,
 }
 
 impl LoadingScreen {
-    pub fn new(loading_reason: LoadingReason) -> Self {
+    pub(crate) fn new(loading_reason: LoadingReason) -> Self {
         Self { loading_reason }
     }
 
-    pub fn view(&self) -> impl View<BinaryColor, AppModel> {
+    pub(crate) fn view(&self) -> impl View<BinaryColor, AppModel> {
         VStack::new((
             Text::new("Loading...", &FONT_6X10),
             Spacer::default(),
@@ -42,7 +42,7 @@ impl LoadingScreen {
         .animated(Animation::linear(Duration::from_secs(5)), true)
     }
 
-    pub fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
         match message {
             Message::SeedPhraseGenerated(words) => {
                 if self.loading_reason == LoadingReason::GeneratingSeedPhrase {

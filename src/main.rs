@@ -7,6 +7,7 @@ use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
+use embassy_rp::config::Config;
 use embassy_rp::dma;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config as I2cConfig, I2c, InterruptHandler as I2cInterruptHandler};
@@ -31,7 +32,6 @@ mod macros;
 mod signals;
 mod tasks;
 mod ui;
-pub mod wordlist;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
@@ -44,7 +44,8 @@ bind_interrupts!(struct Irqs {
     I2C0_IRQ => I2cInterruptHandler<I2C0>;
 });
 
-static FW: cyw43::Aligned<cyw43::A4, [u8; 231077]> = cyw43::Aligned(*cyw43_firmware::CYW43_43439A0);
+static FW: cyw43::Aligned<cyw43::A4, [u8; 231_077]> =
+    cyw43::Aligned(*cyw43_firmware::CYW43_43439A0);
 static CLM: cyw43::Aligned<cyw43::A4, [u8; 984]> =
     cyw43::Aligned(*cyw43_firmware::CYW43_43439A0_CLM);
 static NVRAM: cyw43::Aligned<cyw43::A4, [u8; 742]> =
@@ -62,11 +63,12 @@ macro_rules! spawn_task {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    #[allow(unsafe_code)]
     unsafe {
         embedded_alloc::init!(HEAP, 128 * 1024);
     }
 
-    let p = embassy_rp::init(Default::default());
+    let p = embassy_rp::init(Config::default());
 
     // --- 1. USB CDC-ACM ---
     let usb_driver = Driver::new(p.USB, Irqs);

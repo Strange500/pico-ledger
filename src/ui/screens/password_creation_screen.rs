@@ -9,20 +9,20 @@ use crate::ui::state::AppModel;
 
 static DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-pub struct PasswordCreationScreen {
+pub(crate) struct PasswordCreationScreen {
     pub password: [&'static str; 8],
     pub digit: u8,
 }
 
 impl PasswordCreationScreen {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             password: ["", "", "", "", "", "", "", ""],
             digit: 0,
         }
     }
 
-    pub fn view(&self) -> impl View<BinaryColor, AppModel> {
+    pub(crate) fn view(&self) -> impl View<BinaryColor, AppModel> {
         let digit = self.digit;
         VStack::new((
             Text::new("Create Password", &FONT_6X10),
@@ -32,15 +32,27 @@ impl PasswordCreationScreen {
             Spacer::default(),
             ForEach::<10>::new_horizontal(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], move |i| {
                 if *i == digit as usize {
-                    Text::new(DIGITS[*i], &FONT_6X12)
+                    Text::new(
+                        match DIGITS.get(*i) {
+                            Some(digit) => digit,
+                            None => "",
+                        },
+                        &FONT_6X12,
+                    )
                 } else {
-                    Text::new(DIGITS[*i], &FONT_6X10)
+                    Text::new(
+                        match DIGITS.get(*i) {
+                            Some(digit) => digit,
+                            None => "",
+                        },
+                        &FONT_6X10,
+                    )
                 }
             }),
         ))
     }
 
-    pub fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
         match message {
             Message::Next => {
                 if self.password.iter().any(|&p| p.is_empty()) {
@@ -60,20 +72,26 @@ impl PasswordCreationScreen {
                 if self.password.iter().any(|&p| p.is_empty()) {
                     let index_empty = self.password.iter().position(|&p| p.is_empty());
                     if let Some(i) = index_empty {
-                        self.password[i] = DIGITS[self.digit as usize];
+                        if let Some(digit_str) = self.password.get_mut(i) {
+                            if let Some(digit) = DIGITS.get(self.digit as usize) {
+                                *digit_str = digit;
+                            }
+                        }
                     }
                 }
                 if self.password.iter().all(|&p| !p.is_empty()) {
-                    match SIGNER_CHANNEL.try_send(SignerMessage::GenerateSeed {
-                        password: self.password,
-                    }) {
-                        Ok(_) => Some(AppModel::Loading(LoadingScreen::new(
+                    if SIGNER_CHANNEL
+                        .try_send(SignerMessage::GenerateSeed {
+                            password: self.password,
+                        })
+                        .is_ok()
+                    {
+                        Some(AppModel::Loading(LoadingScreen::new(
                             LoadingReason::GeneratingSeedPhrase,
-                        ))),
-                        Err(_) => {
-                            log_info!("Failed to send GenerateSeed message");
-                            None
-                        }
+                        )))
+                    } else {
+                        log_info!("Failed to send GenerateSeed message");
+                        None
                     }
                 } else {
                     None

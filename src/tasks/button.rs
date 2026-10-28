@@ -13,7 +13,7 @@ pub async fn dual_button_task(mut btn_left: Input<'static>, mut btn_right: Input
         )
         .await
         {
-            Either::First(_) | Either::Second(_) => {
+            Either::First(()) | Either::Second(()) => {
                 // 2. The Grace Period
                 // Wait 50ms to debounce the mechanical switch and give the
                 // user's other finger time to complete the simultaneous press.

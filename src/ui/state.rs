@@ -8,7 +8,7 @@ use crate::ui::screens::{
     password_creation_screen::PasswordCreationScreen, seed_phrase_screen::SeedPhraseScreen,
 };
 
-pub enum AppModel {
+pub(crate) enum AppModel {
     Init(InitScreen),
     PasswordCreation(PasswordCreationScreen),
     Loading(LoadingScreen),
@@ -18,7 +18,7 @@ pub enum AppModel {
 }
 
 impl AppModel {
-    pub fn update(&mut self, message: Message) {
+    pub(crate) fn update(&mut self, message: Message) {
         ACTIVITY_SIGNAL.signal(());
         log_info!("Received message: ");
         if let Message::Lock = message {
@@ -49,7 +49,7 @@ impl AppModel {
         }
     }
 
-    pub fn view(&self) -> impl View<BinaryColor, AppModel> + use<> {
+    pub(crate) fn view(&self) -> impl View<BinaryColor, AppModel> + use<> {
         match_view!(
             self,
             {

@@ -21,17 +21,16 @@ static NETWORK: bitcoin::network::Network = bitcoin::network::Network::Testnet;
 
 fn derive_encryption_key(password: &[&'static str; 8]) -> [u8; 32] {
     let mut encryption_key = [0u8; 32];
-    match pbkdf2::pbkdf2::<Hmac<Sha256>>(
+    if let Ok(()) = pbkdf2::pbkdf2::<Hmac<Sha256>>(
         password.join("").as_bytes(),
         SALT,
         100_000,
         &mut encryption_key,
     ) {
-        Ok(_) => encryption_key,
-        Err(_) => {
-            log_error!("Failed to derive encryption key");
-            [0u8; 32]
-        }
+        encryption_key
+    } else {
+        log_error!("Failed to derive encryption key");
+        [0u8; 32]
     }
 }
 
@@ -46,12 +45,11 @@ async fn encrypt_entropy(
     let nonce = Nonce::from(nonce_bytes);
 
     let cipher = ChaCha20Poly1305::new(&encryption_key.into());
-    match cipher.encrypt(&nonce, entropy.as_ref()) {
-        Ok(ciphertext) => (ciphertext, nonce_bytes),
-        Err(_) => {
-            log_error!("Encryption failed");
-            (Vec::new(), nonce_bytes)
-        }
+    if let Ok(ciphertext) = cipher.encrypt(&nonce, entropy.as_ref()) {
+        (ciphertext, nonce_bytes)
+    } else {
+        log_error!("Encryption failed");
+        (Vec::new(), nonce_bytes)
     }
 }
 
@@ -118,6 +116,7 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
             }
             SignerMessage::Lock => {
                 pswr = None;
+                master_private = None;
                 log_info!("Device locked. Password cleared from memory.");
             }
             SignerMessage::CheckPassword { password } => {
@@ -136,23 +135,6 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                     log_info!("No encrypted wallet found. Generate a seed phrase first.");
                 }
             }
-            SignerMessage::Test => {
-                // try to decrypt with the stored password if it exists
-                if let (Some((ciphertext, nonce_bytes)), Some(password)) =
-                    (&encrypted_wallet, &pswr)
-                {
-                    match decrypt_entropy(ciphertext, password, nonce_bytes) {
-                        Ok(_) => {
-                            log_info!("Test decryption successful.");
-                        }
-                        Err(err) => {
-                            log_info!("Test decryption failed: {}", err);
-                        }
-                    }
-                } else {
-                    log_info!("No encrypted wallet or password found.");
-                }
-            }
             SignerMessage::Sign {
                 tx_hash,
                 address_index,
@@ -162,7 +144,7 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                         log_error!("Failed to create master extended private key");
                         continue;
                     };
-                    let path_str = format!("m/84'/0'/0'/0/{}", address_index);
+                    let path_str = format!("m/84'/0'/0'/0/{address_index}");
                     let Ok(path) = DerivationPath::from_str(&path_str) else {
                         log_error!("Failed to create derivation path");
                         continue;

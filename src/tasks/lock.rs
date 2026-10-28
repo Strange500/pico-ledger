@@ -12,11 +12,11 @@ pub async fn lock_task() -> ! {
         )
         .await
         {
-            Either::First(_) => {
+            Either::First(()) => {
                 MESSAGE_QUEUE.send(Message::Lock).await;
                 log_info!("Locking the device due to inactivity");
             }
-            Either::Second(_) => {
+            Either::Second(()) => {
                 // Activity signal received, reset the timer
                 // You can add your own logic here to reset the timer
             }

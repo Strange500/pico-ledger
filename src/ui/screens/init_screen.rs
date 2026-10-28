@@ -8,14 +8,14 @@ use crate::signals::Message;
 use crate::ui::screens::password_creation_screen::PasswordCreationScreen;
 use crate::ui::state::AppModel;
 
-pub struct InitScreen;
+pub(crate) struct InitScreen;
 
 impl InitScreen {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 
-    pub fn view(&self) -> impl View<BinaryColor, AppModel> {
+    pub(crate) fn view(&self) -> impl View<BinaryColor, AppModel> {
         VStack::new((
             Text::new("Bip39 Seed Generator", &FONT_6X10),
             Spacer::default(),
@@ -25,7 +25,7 @@ impl InitScreen {
         .padding(Edges::Vertical, 2)
     }
 
-    pub fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
         match message {
             Message::Next => Some(AppModel::PasswordCreation(PasswordCreationScreen::new())),
             _ => None,

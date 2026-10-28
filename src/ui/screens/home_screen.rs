@@ -7,20 +7,20 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use crate::signals::{Message, SignerMessage, SIGNER_CHANNEL};
 use crate::ui::state::AppModel;
 
-pub struct HomeScreen;
+pub(crate) struct HomeScreen;
 
 impl HomeScreen {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 
-    pub fn view(&self) -> impl View<BinaryColor, AppModel> {
+    pub(crate) fn view(&self) -> impl View<BinaryColor, AppModel> {
         VStack::new((Text::new("Home Screen", &FONT_6X10), Spacer::default()))
             .padding(Edges::Horizontal, 4)
             .padding(Edges::Vertical, 2)
     }
 
-    pub fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
         if let Message::Next = message {
             let dummy_tx_hash = [1u8; 32];
 
@@ -34,7 +34,7 @@ impl HomeScreen {
             log_info!("Sent SignerMessage::Sign to SIGNER_CHANNEL");
             None
         } else if let Message::TransactionSigned { signature } = message {
-            log::info!("Received signature: {:?}", signature);
+            log::info!("Received signature: {signature:?}");
             None
         } else {
             None

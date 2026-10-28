@@ -8,14 +8,14 @@ use crate::ui::screens::loading_screen::{LoadingReason, LoadingScreen};
 use crate::ui::state::AppModel;
 static DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-pub struct LockScreen {
+pub(crate) struct LockScreen {
     digit: u8,
     password: [&'static str; 8],
     has_error: bool,
 }
 
 impl LockScreen {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             digit: 0,
             password: ["", "", "", "", "", "", "", ""],
@@ -23,7 +23,7 @@ impl LockScreen {
         }
     }
 
-    pub fn with_error() -> Self {
+    pub(crate) fn with_error() -> Self {
         Self {
             digit: 0,
             password: ["", "", "", "", "", "", "", ""],
@@ -31,13 +31,14 @@ impl LockScreen {
         }
     }
 
-    pub fn view(&self) -> impl View<BinaryColor, AppModel> {
+    pub(crate) fn view(&self) -> impl View<BinaryColor, AppModel> {
         let digit = self.digit;
         VStack::new((
             Text::new(
-                match self.has_error {
-                    true => "Invalid Password, try again",
-                    false => "Enter Password",
+                if self.has_error {
+                    "Invalid Password, try again"
+                } else {
+                    "Enter Password"
                 },
                 &FONT_6X10,
             ),
@@ -47,15 +48,27 @@ impl LockScreen {
             Spacer::default(),
             ForEach::<10>::new_horizontal(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], move |i| {
                 if *i == digit as usize {
-                    Text::new(DIGITS[*i], &FONT_6X12)
+                    Text::new(
+                        match DIGITS.get(*i) {
+                            Some(digit) => digit,
+                            None => "",
+                        },
+                        &FONT_6X12,
+                    )
                 } else {
-                    Text::new(DIGITS[*i], &FONT_6X10)
+                    Text::new(
+                        match DIGITS.get(*i) {
+                            Some(digit) => digit,
+                            None => "",
+                        },
+                        &FONT_6X10,
+                    )
                 }
             }),
         ))
     }
 
-    pub fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
         match message {
             Message::Next => {
                 if self.password.iter().any(|&p| p.is_empty()) {
@@ -75,7 +88,11 @@ impl LockScreen {
                 if self.password.iter().any(|&p| p.is_empty()) {
                     match self.password.iter().position(|&p| p.is_empty()) {
                         Some(index) => {
-                            self.password[index] = DIGITS[self.digit as usize];
+                            if let Some(digit_str) = self.password.get_mut(index) {
+                                if let Some(digit) = DIGITS.get(self.digit as usize) {
+                                    *digit_str = digit;
+                                }
+                            }
                         }
                         None => {
                             log_info!("No empty password field found");
@@ -83,16 +100,15 @@ impl LockScreen {
                     }
                 }
                 if self.password.iter().all(|&p| !p.is_empty()) {
-                    match SIGNER_CHANNEL.try_send(SignerMessage::CheckPassword {
+                    if let Ok(()) = SIGNER_CHANNEL.try_send(SignerMessage::CheckPassword {
                         password: self.password,
                     }) {
-                        Ok(_) => Some(AppModel::Loading(LoadingScreen::new(
+                        Some(AppModel::Loading(LoadingScreen::new(
                             LoadingReason::CheckingPassword,
-                        ))),
-                        Err(_) => {
-                            log_error!("Failed to send password check message");
-                            None
-                        }
+                        )))
+                    } else {
+                        log_error!("Failed to send password check message");
+                        None
                     }
                 } else {
                     None
