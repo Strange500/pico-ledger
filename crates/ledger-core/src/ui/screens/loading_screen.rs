@@ -6,11 +6,11 @@ use buoyant::view::{Spacer, Text, VStack, View};
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::pixelcolor::BinaryColor;
 
-use crate::signals::Message;
 use crate::ui::screens::home_screen::HomeScreen;
 use crate::ui::screens::lockscreen::LockScreen;
 use crate::ui::screens::seed_phrase_screen::SeedPhraseScreen;
-use crate::ui::state::AppModel;
+use crate::ui::state::{AppModel, Screen};
+use crate::{Message, Transition};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoadingReason {
@@ -42,27 +42,33 @@ impl LoadingScreen {
         .animated(Animation::linear(Duration::from_secs(5)), true)
     }
 
-    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Transition {
         match message {
             Message::SeedPhraseGenerated(words) => {
                 if self.loading_reason == LoadingReason::GeneratingSeedPhrase {
-                    Some(AppModel::SeedPhrase(SeedPhraseScreen::new(words)))
+                    Transition::model(AppModel {
+                        screen: Screen::SeedPhrase(SeedPhraseScreen::new(words)),
+                    })
                 } else {
-                    None
+                    Transition::none()
                 }
             }
             Message::PasswordChecked(is_valid) => {
                 if self.loading_reason == LoadingReason::CheckingPassword {
                     if is_valid {
-                        Some(AppModel::Home(HomeScreen::new()))
+                        Transition::model(AppModel {
+                            screen: Screen::Home(HomeScreen::new()),
+                        })
                     } else {
-                        Some(AppModel::Lock(LockScreen::with_error()))
+                        Transition::model(AppModel {
+                            screen: Screen::Lock(LockScreen::with_error()),
+                        })
                     }
                 } else {
-                    None
+                    Transition::none()
                 }
             }
-            _ => None,
+            _ => Transition::none(),
         }
     }
 }

@@ -62,8 +62,8 @@ jobs:
             echo "== cargo test (host) =="
             cargo test-host
             echo "== cargo build (dev shell) =="
-            cargo build --release
-            test -f target/thumbv8m.main-none-eabihf/release/pico-ledger && echo "  ok: firmware built"
+            cargo build -p ledger-firmware --release --target thumbv8m.main-none-eabihf
+            test -f target/thumbv8m.main-none-eabihf/release/ledger-firmware && echo "  ok: firmware built"
           '
 
       # Capture the dependency lockfile generated during evaluation so it can be

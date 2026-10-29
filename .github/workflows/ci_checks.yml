@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Run BIP-39 host tests
-        run: cargo test -p bip39 --target x86_64-unknown-linux-gnu
+        run: cargo test -p ledger-core
 
   building:
     name: Firmware Build (${{ matrix.os }}, ${{ matrix.rust }})
@@ -44,9 +44,9 @@ jobs:
         with:
           tool: flip-link
       - name: Build debug
-        run: cargo build --all
+        run: cargo build -p ledger-firmware --target thumbv8m.main-none-eabihf
       - name: Build release
-        run: cargo build --all --release
+        run: cargo build -p ledger-firmware --target thumbv8m.main-none-eabihf --release
 
   linting:
     name: Linting (Clippy)

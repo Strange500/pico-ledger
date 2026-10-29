@@ -4,9 +4,9 @@ use buoyant::view::{Spacer, Text, VStack, View};
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::pixelcolor::BinaryColor;
 
-use crate::signals::Message;
 use crate::ui::screens::password_creation_screen::PasswordCreationScreen;
-use crate::ui::state::AppModel;
+use crate::ui::state::{AppModel, Screen};
+use crate::{Message, Transition};
 
 pub(crate) struct InitScreen;
 
@@ -25,10 +25,12 @@ impl InitScreen {
         .padding(Edges::Vertical, 2)
     }
 
-    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Transition {
         match message {
-            Message::Next => Some(AppModel::PasswordCreation(PasswordCreationScreen::new())),
-            _ => None,
+            Message::Next => Transition::model(AppModel {
+                screen: Screen::PasswordCreation(PasswordCreationScreen::new()),
+            }),
+            _ => Transition::none(),
         }
     }
 }

@@ -1,0 +1,14 @@
+[package]
+name = "ledger-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bitcoin = { version = "0.32.102", default-features = false }
+bip39 = { version = "=3.0.0", default-features = false }
+buoyant = "0.7.1"
+embedded-graphics = "0.8.2"
+heapless = "0.8"
+sha2 = { version = "0.11.1", default-features = false }
+zeroize = { version = "1.9.1", default-features = false, features = ["zeroize_derive"] }

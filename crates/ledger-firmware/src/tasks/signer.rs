@@ -78,7 +78,6 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
 
     // store master extended private key in memory after decryption for signing
     let mut master_private: Option<[u8; 64]> = None;
-    let mut pswr: Option<[&'static str; 8]> = None;
 
     // Initialize the crypto context once
     let secp = Secp256k1::signing_only();
@@ -110,12 +109,10 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                     encrypt_entropy(&entropy, &password, &mut trng).await;
 
                 encrypted_wallet = Some((ciphertext, nonce_bytes));
-                pswr = Some(password);
                 master_private = Some(mnemonic.to_seed_normalized(&password.join("")));
                 entropy.zeroize();
             }
             SignerMessage::Lock => {
-                pswr = None;
                 master_private = None;
                 log_info!("Device locked. Password cleared from memory.");
             }
@@ -124,7 +121,6 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                     match decrypt_entropy(ciphertext, &password, nonce_bytes) {
                         Ok(_) => {
                             MESSAGE_QUEUE.send(Message::PasswordChecked(true)).await;
-                            pswr = Some(password);
                         }
                         Err(err) => {
                             log_info!("Password check failed: {}", err);
