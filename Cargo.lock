@@ -1421,6 +1421,53 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
+name = "ledger-core"
+version = "0.1.0"
+dependencies = [
+ "bip39",
+ "bitcoin",
+ "buoyant",
+ "embedded-graphics",
+ "heapless 0.8.0",
+ "sha2",
+ "zeroize",
+]
+
+[[package]]
+name = "ledger-firmware"
+version = "0.1.0"
+dependencies = [
+ "bip39",
+ "bitcoin",
+ "buoyant",
+ "chacha20poly1305",
+ "cortex-m-rt",
+ "cyw43",
+ "cyw43-firmware",
+ "cyw43-pio",
+ "defmt 1.2.0",
+ "defmt-rtt",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-rp",
+ "embassy-sync",
+ "embassy-time",
+ "embassy-usb",
+ "embassy-usb-logger",
+ "embedded-alloc",
+ "embedded-graphics",
+ "hmac",
+ "ledger-core",
+ "log",
+ "panic-probe",
+ "pbkdf2",
+ "sha2",
+ "ssd1306",
+ "static_cell",
+ "zeroize",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1639,39 +1686,6 @@ name = "pico-args"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
-
-[[package]]
-name = "pico-ledger"
-version = "0.1.0"
-dependencies = [
- "bip39",
- "bitcoin",
- "buoyant",
- "chacha20poly1305",
- "cortex-m-rt",
- "cyw43",
- "cyw43-firmware",
- "cyw43-pio",
- "defmt 1.2.0",
- "defmt-rtt",
- "embassy-executor",
- "embassy-futures",
- "embassy-rp",
- "embassy-sync",
- "embassy-time",
- "embassy-usb",
- "embassy-usb-logger",
- "embedded-alloc",
- "embedded-graphics",
- "hmac",
- "log",
- "panic-probe",
- "pbkdf2",
- "sha2",
- "ssd1306",
- "static_cell",
- "zeroize",
-]
 
 [[package]]
 name = "pin-project-lite"

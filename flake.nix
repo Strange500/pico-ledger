@@ -90,11 +90,11 @@
           buildPhase = ''
             # Nix builds run with an unwritable HOME; give cargo a writable home.
             export CARGO_HOME="$(pwd)/.cargo-home"
-            cargo build --release --target thumbv8m.main-none-eabihf
+            cargo build -p ledger-firmware --release --target thumbv8m.main-none-eabihf
           '';
           installPhase = ''
             mkdir -p "$out/bin"
-            cp target/thumbv8m.main-none-eabihf/release/pico-ledger "$out/bin/pico-ledger.elf"
+            cp target/thumbv8m.main-none-eabihf/release/ledger-firmware "$out/bin/ledger-firmware.elf"
           '';
           meta = {
             description = "pico-ledger RP2350 firmware (ELF)";
@@ -106,11 +106,11 @@
           export PATH="${pkgs.lib.makeBinPath [toolchain pkgs.llvmPackages.clang-unwrapped pkgs.flip-link pkgs.picotool pkgs.util-linux pkgs.coreutils]}:$PATH"
 
           echo "== 1. Building release firmware =="
-          cargo build --release --target thumbv8m.main-none-eabihf
+          cargo build -p ledger-firmware --release --target thumbv8m.main-none-eabihf
 
           echo "== 2. Converting ELF to RP2350 UF2 =="
-          ELF_PATH="target/thumbv8m.main-none-eabihf/release/pico-ledger"
-          UF2_PATH="target/thumbv8m.main-none-eabihf/release/pico-ledger.uf2"
+          ELF_PATH="target/thumbv8m.main-none-eabihf/release/ledger-firmware"
+          UF2_PATH="target/thumbv8m.main-none-eabihf/release/ledger-firmware.uf2"
           picotool uf2 convert -t elf "$ELF_PATH" "$UF2_PATH" --family rp2350-arm-s
 
           echo "== 3. Locating RP2350 device =="

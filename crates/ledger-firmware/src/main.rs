@@ -31,7 +31,6 @@ use crate::tasks::wifi::cyw43_task;
 mod macros;
 mod signals;
 mod tasks;
-mod ui;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();

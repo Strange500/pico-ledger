@@ -2,9 +2,9 @@ use buoyant::view::{Divider, Spacer, Text, VStack, View};
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::pixelcolor::BinaryColor;
 
-use crate::signals::Message;
 use crate::ui::screens::home_screen::HomeScreen;
-use crate::ui::state::AppModel;
+use crate::ui::state::{AppModel, Screen};
+use crate::{Message, Transition};
 
 static PAGES_24: [&str; 8] = [
     "Words 1-3 of 24",
@@ -51,25 +51,29 @@ impl SeedPhraseScreen {
         ))
     }
 
-    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Transition {
         match message {
             Message::Next => {
                 if self.step < 7 {
                     self.step += 1;
-                    None
+                    Transition::none()
                 } else {
-                    Some(AppModel::Home(HomeScreen::new()))
+                    Transition::model(AppModel {
+                        screen: Screen::Home(HomeScreen::new()),
+                    })
                 }
             }
             Message::Back => {
                 if self.step > 0 {
                     self.step -= 1;
-                    None
+                    Transition::none()
                 } else {
-                    Some(AppModel::Home(HomeScreen::new()))
+                    Transition::model(AppModel {
+                        screen: Screen::Home(HomeScreen::new()),
+                    })
                 }
             }
-            _ => None,
+            _ => Transition::none(),
         }
     }
 }

@@ -104,14 +104,14 @@ Because the default target is bare-metal Cortex-M, execute unit tests on the hos
 ```bash
 cargo test-host
 # Or directly:
-cargo test --package bip39 --target x86_64-unknown-linux-gnu
+cargo test -p ledger-core
 ```
 
 ### Run Desktop UI Simulator
 Preview the OLED layout and animations on your host machine:
 
 ```bash
-cargo run --package ui --target x86_64-unknown-linux-gnu
+cargo test -p ledger-core
 ```
 
 ---
@@ -203,21 +203,9 @@ pico-ledger/
 ├── .cargo/
 │   └── config.toml           # Cross-compilation target, runner, and linker configurations
 ├── crates/
-│   ├── bip39/                # BIP-39 mnemonic implementation, wordlist, and test vectors
-│   └── ui/                   # Host UI simulator (embedded-graphics-simulator)
-├── firmware/
-│   └── nvram_rp2040.bin      # CYW43439 NVRAM parameter binary blob
-├── src/
-│   ├── main.rs               # Async entry point and Embassy task spawner
-│   ├── signals.rs            # Inter-task signals (BUTTON_SIGNAL, WORD_SIGNAL)
-│   ├── tasks/
-│   │   ├── button.rs         # GP2 debounced button detection task
-│   │   ├── display.rs        # SSD1306 OLED display async rendering task
-│   │   ├── rng.rs            # Hardware TRNG random word generation task
-│   │   ├── usb.rs            # USB CDC-ACM serial logger task
-│   │   └── wifi.rs           # CYW43 co-processor runner (drives onboard LED)
-│   └── ui/
-│       └── state.rs          # UI view hierarchies and screen state definitions
+│   ├── ledger-core/          # Pure no_std MVU state, validation, and UI model
+│   └── ledger-firmware/      # RP2350 Embassy runtime and hardware tasks
+│       └── firmware/         # CYW43439 NVRAM parameter binary blob
 ├── build.rs                  # Linker script search path setup
 ├── memory.x                  # RP2350 Flash and RAM layout with boot headers
 ├── flake.nix                 # Nix development shell and automated flash scripts
@@ -243,5 +231,4 @@ Log out and log back in for group changes to take effect.
 
 ### RP2350 Drive Not Found
 Ensure you hold down the white **BOOTSEL** button while connecting the USB cable to the PC. The device will present itself as a mass storage volume named `RP2350`.
-
 

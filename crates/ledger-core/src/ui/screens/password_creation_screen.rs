@@ -3,9 +3,9 @@ use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::iso_8859_14::FONT_6X12;
 use embedded_graphics::pixelcolor::BinaryColor;
 
-use crate::signals::{Message, SignerMessage, SIGNER_CHANNEL};
 use crate::ui::screens::loading_screen::{LoadingReason, LoadingScreen};
-use crate::ui::state::AppModel;
+use crate::ui::state::{AppModel, Screen};
+use crate::{Effect, Message, SignerMessage, Transition};
 
 static DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
@@ -52,13 +52,13 @@ impl PasswordCreationScreen {
         ))
     }
 
-    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub(crate) fn update(&mut self, message: Message) -> Transition {
         match message {
             Message::Next => {
                 if self.password.iter().any(|&p| p.is_empty()) {
                     self.digit = if self.digit == 9 { 0 } else { self.digit + 1 };
                 }
-                None
+                Transition::none()
             }
             Message::Back => {
                 if self.digit > 0 {
@@ -66,7 +66,7 @@ impl PasswordCreationScreen {
                 } else {
                     self.digit = 9;
                 }
-                None
+                Transition::none()
             }
             Message::Select => {
                 if self.password.iter().any(|&p| p.is_empty()) {
@@ -80,24 +80,21 @@ impl PasswordCreationScreen {
                     }
                 }
                 if self.password.iter().all(|&p| !p.is_empty()) {
-                    if SIGNER_CHANNEL
-                        .try_send(SignerMessage::GenerateSeed {
+                    Transition {
+                        model: Some(AppModel {
+                            screen: Screen::Loading(LoadingScreen::new(
+                                LoadingReason::GeneratingSeedPhrase,
+                            )),
+                        }),
+                        effect: Some(Effect::Signer(SignerMessage::GenerateSeed {
                             password: self.password,
-                        })
-                        .is_ok()
-                    {
-                        Some(AppModel::Loading(LoadingScreen::new(
-                            LoadingReason::GeneratingSeedPhrase,
-                        )))
-                    } else {
-                        log_info!("Failed to send GenerateSeed message");
-                        None
+                        })),
                     }
                 } else {
-                    None
+                    Transition::none()
                 }
             }
-            _ => None,
+            _ => Transition::none(),
         }
     }
 }
