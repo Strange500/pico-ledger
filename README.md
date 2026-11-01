@@ -12,7 +12,7 @@ Bare-metal Bitcoin hardware wallet firmware for the **Raspberry Pi Pico 2 W** (R
 - **Interactive Pushbutton**: Pushbutton on `GP2` (active-low with internal pull-up) triggers seed phrase generation, screen navigation, and LED control.
 - **Live USB Serial Logging**: Exposes a USB CDC-ACM virtual COM port (`/dev/ttyACM0`) through `embassy-usb-logger` for real-time diagnostics.
 - **SWD RTT Logging**: Simultaneously streams logs over SWD via `defmt-rtt` when using a debug probe like `probe-rs`.
-- **Desktop UI Simulator**: Standalone desktop runner using `embedded-graphics-simulator` to preview and test display views on the host without flashing hardware.
+- **Portable Core**: Host-tested wallet logic and UI state shared with the firmware.
 - **Reproducible Nix Environment**: Complete Nix flake providing `picotool`, `tio`, `probe-rs`, `flip-link`, Wokwi simulation, and cross-compilation toolchains.
 
 ---
@@ -96,23 +96,39 @@ This will automatically:
 
 ---
 
-## Testing & Host Simulator
+## Workspace & Testing
 
 ### Run Unit Tests
-Because the default target is bare-metal Cortex-M, execute unit tests on the host target (`x86_64`):
+
+The workspace contains two crates:
+
+- `pico-ledger`: RP2350 firmware, hardware drivers, Embassy tasks and channel adapters.
+- `pico-ledger-core` (`crates/core`): `no_std` + `alloc` wallet logic, messages and portable UI views/state. It has no hardware runtime dependency.
+
+Run the core unit tests on the host (no Pico or simulator required):
 
 ```bash
 cargo test-host
 # Or directly:
-cargo test --package bip39 --target x86_64-unknown-linux-gnu
+cargo test --locked -p pico-ledger-core --target x86_64-unknown-linux-gnu
 ```
 
-### Run Desktop UI Simulator
-Preview the OLED layout and animations on your host machine:
+Tests cover cryptographic vectors, encryption failures, lock/unlock and signing,
+password entry, command backpressure and screen navigation. Firmware supplies
+TRNG entropy and unique random nonces; tests supply deterministic inputs.
+The `Effects` interface adapts UI commands and activity notifications to firmware
+channels or a test recorder.
+
+Keep firmware compilation as a separate check:
 
 ```bash
-cargo run --package ui --target x86_64-unknown-linux-gnu
+cargo build --locked -p pico-ledger
+cargo build --locked -p pico-ledger --release
+cargo fmt --all -- --check
 ```
+
+A desktop UI simulator is not included in this workspace. Physical I/O, timing
+and hardware randomness still require hardware validation.
 
 ---
 
@@ -203,8 +219,7 @@ pico-ledger/
 ├── .cargo/
 │   └── config.toml           # Cross-compilation target, runner, and linker configurations
 ├── crates/
-│   ├── bip39/                # BIP-39 mnemonic implementation, wordlist, and test vectors
-│   └── ui/                   # Host UI simulator (embedded-graphics-simulator)
+│   └── core/                 # Portable wallet, UI, messages, and host unit tests
 ├── firmware/
 │   └── nvram_rp2040.bin      # CYW43439 NVRAM parameter binary blob
 ├── src/
@@ -213,11 +228,9 @@ pico-ledger/
 │   ├── tasks/
 │   │   ├── button.rs         # GP2 debounced button detection task
 │   │   ├── display.rs        # SSD1306 OLED display async rendering task
-│   │   ├── rng.rs            # Hardware TRNG random word generation task
+│   │   ├── signer.rs         # TRNG and wallet core adapter
 │   │   ├── usb.rs            # USB CDC-ACM serial logger task
 │   │   └── wifi.rs           # CYW43 co-processor runner (drives onboard LED)
-│   └── ui/
-│       └── state.rs          # UI view hierarchies and screen state definitions
 ├── build.rs                  # Linker script search path setup
 ├── memory.x                  # RP2350 Flash and RAM layout with boot headers
 ├── flake.nix                 # Nix development shell and automated flash scripts

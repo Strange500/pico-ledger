@@ -1,31 +1,47 @@
-use buoyant::view::{Divider, ForEach, Spacer, Text, VStack, View};
-use embedded_graphics::mono_font::ascii::FONT_6X10;
-use embedded_graphics::mono_font::iso_8859_14::FONT_6X12;
+use buoyant::view::prelude::*;
+use buoyant::view::{Spacer, Text, VStack, View};
+use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_6X12};
 use embedded_graphics::pixelcolor::BinaryColor;
 
-use crate::signals::{Message, SignerMessage, SIGNER_CHANNEL};
+use crate::signals::{Message, SignerMessage};
 use crate::ui::screens::loading_screen::{LoadingReason, LoadingScreen};
 use crate::ui::state::AppModel;
-
 static DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-pub(crate) struct PasswordCreationScreen {
-    pub password: [&'static str; 8],
-    pub digit: u8,
+pub struct LockScreen {
+    digit: u8,
+    password: [&'static str; 8],
+    has_error: bool,
 }
 
-impl PasswordCreationScreen {
-    pub(crate) fn new() -> Self {
+impl LockScreen {
+    pub fn new() -> Self {
         Self {
-            password: ["", "", "", "", "", "", "", ""],
             digit: 0,
+            password: ["", "", "", "", "", "", "", ""],
+            has_error: false,
         }
     }
 
-    pub(crate) fn view(&self) -> impl View<BinaryColor, AppModel> {
+    pub fn with_error() -> Self {
+        Self {
+            digit: 0,
+            password: ["", "", "", "", "", "", "", ""],
+            has_error: true,
+        }
+    }
+
+    pub fn view(&self) -> impl View<BinaryColor, AppModel> {
         let digit = self.digit;
         VStack::new((
-            Text::new("Create Password", &FONT_6X10),
+            Text::new(
+                if self.has_error {
+                    "Invalid Password, try again"
+                } else {
+                    "Enter Password"
+                },
+                &FONT_6X10,
+            ),
             Divider::new(1),
             Spacer::default(),
             Text::new(self.password.join(" "), &FONT_6X10),
@@ -52,7 +68,11 @@ impl PasswordCreationScreen {
         ))
     }
 
-    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub fn update(
+        &mut self,
+        message: Message,
+        effects: &mut impl crate::signals::Effects,
+    ) -> Option<AppModel> {
         match message {
             Message::Next => {
                 if self.password.iter().any(|&p| p.is_empty()) {
@@ -70,27 +90,28 @@ impl PasswordCreationScreen {
             }
             Message::Select => {
                 if self.password.iter().any(|&p| p.is_empty()) {
-                    let index_empty = self.password.iter().position(|&p| p.is_empty());
-                    if let Some(i) = index_empty {
-                        if let Some(digit_str) = self.password.get_mut(i) {
-                            if let Some(digit) = DIGITS.get(self.digit as usize) {
-                                *digit_str = digit;
+                    match self.password.iter().position(|&p| p.is_empty()) {
+                        Some(index) => {
+                            if let Some(digit_str) = self.password.get_mut(index) {
+                                if let Some(digit) = DIGITS.get(self.digit as usize) {
+                                    *digit_str = digit;
+                                }
                             }
+                        }
+                        None => {
+                            log::info!("No empty password field found");
                         }
                     }
                 }
                 if self.password.iter().all(|&p| !p.is_empty()) {
-                    if SIGNER_CHANNEL
-                        .try_send(SignerMessage::GenerateSeed {
-                            password: self.password,
-                        })
-                        .is_ok()
-                    {
+                    if let Ok(()) = effects.send(SignerMessage::CheckPassword {
+                        password: self.password,
+                    }) {
                         Some(AppModel::Loading(LoadingScreen::new(
-                            LoadingReason::GeneratingSeedPhrase,
+                            LoadingReason::CheckingPassword,
                         )))
                     } else {
-                        log_info!("Failed to send GenerateSeed message");
+                        log::error!("Failed to send password check message");
                         None
                     }
                 } else {
@@ -99,5 +120,11 @@ impl PasswordCreationScreen {
             }
             _ => None,
         }
+    }
+}
+
+impl Default for LockScreen {
+    fn default() -> Self {
+        Self::new()
     }
 }

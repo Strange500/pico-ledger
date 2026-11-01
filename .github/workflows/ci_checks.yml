@@ -16,8 +16,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Run BIP-39 host tests
-        run: cargo test -p bip39 --target x86_64-unknown-linux-gnu
+      - name: Run portable core unit tests
+        run: cargo test --locked -p pico-ledger-core --target x86_64-unknown-linux-gnu
+
+  core-lint:
+    name: Core Clippy (Host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --locked -p pico-ledger-core --target x86_64-unknown-linux-gnu --all-targets -- -D warnings
 
   building:
     name: Firmware Build (${{ matrix.os }}, ${{ matrix.rust }})
@@ -44,9 +54,9 @@ jobs:
         with:
           tool: flip-link
       - name: Build debug
-        run: cargo build --all
+        run: cargo build --locked -p pico-ledger
       - name: Build release
-        run: cargo build --all --release
+        run: cargo build --locked -p pico-ledger --release
 
   linting:
     name: Linting (Clippy)
@@ -74,4 +84,4 @@ jobs:
           components: rustfmt
           target: thumbv8m.main-none-eabihf
       - name: Check code formatting
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
