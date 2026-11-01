@@ -17,17 +17,17 @@ static PAGES_24: [&str; 8] = [
     "Words 22-24 of 24",
 ];
 
-pub(crate) struct SeedPhraseScreen {
+pub struct SeedPhraseScreen {
     pub words: [&'static str; 24],
     pub step: usize,
 }
 
 impl SeedPhraseScreen {
-    pub(crate) fn new(words: [&'static str; 24]) -> Self {
+    pub fn new(words: [&'static str; 24]) -> Self {
         Self { words, step: 0 }
     }
 
-    pub(crate) fn view(&self) -> impl View<BinaryColor, AppModel> + use<> {
+    pub fn view(&self) -> impl View<BinaryColor, AppModel> + use<> {
         let start = self.step * 3;
 
         let [w1, w2, w3] = match self.words.get(start..start + 3) {
@@ -51,7 +51,11 @@ impl SeedPhraseScreen {
         ))
     }
 
-    pub(crate) fn update(&mut self, message: Message) -> Option<AppModel> {
+    pub fn update(
+        &mut self,
+        message: Message,
+        _effects: &mut impl crate::signals::Effects,
+    ) -> Option<AppModel> {
         match message {
             Message::Next => {
                 if self.step < 7 {

@@ -16,9 +16,7 @@ rustflags = [
 target = "thumbv8m.main-none-eabihf"
 
 [alias]
-test-host = "test --target x86_64-unknown-linux-gnu"
-ui = "run --package ui --target x86_64-unknown-linux-gnu"
-check-ui = "check --package ui --target x86_64-unknown-linux-gnu"
+test-host = "test -p pico-ledger-core --target x86_64-unknown-linux-gnu"
 
 [env]
 DEFMT_LOG = "debug"

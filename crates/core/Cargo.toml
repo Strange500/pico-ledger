@@ -1,0 +1,21 @@
+[package]
+name = "pico-ledger-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+log = "0.4.34"
+bip39 = { version = "=3.0.0", default-features = false }
+embedded-graphics = "0.8.2"
+sha2 = { version = "0.11.1", default-features = false }
+buoyant = "0.7.1"
+bitcoin = { version = "0.32.102", default-features = false }
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = [
+    "alloc",
+    "zeroize",
+] }
+zeroize = { version = "1.9.1", default-features = false, features = [
+    "zeroize_derive", "alloc",
+] }
+pbkdf2 = { version = "0.13.0", default-features = false, features = ["hmac"] }

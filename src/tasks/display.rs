@@ -9,8 +9,8 @@ use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
 use crate::signals::MESSAGE_QUEUE;
-use crate::ui::screens::init_screen::InitScreen;
-use crate::ui::state::AppModel;
+use pico_ledger_core::ui::screens::init_screen::InitScreen;
+use pico_ledger_core::ui::state::AppModel;
 
 /// Background task: drive the SSD1306 128x64 OLED over I2C (GP4 SDA, GP5 SCL).
 #[embassy_executor::task]
@@ -52,10 +52,25 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
             }
         }
         let msg = MESSAGE_QUEUE.receive().await;
-        app.state_mut().update(msg);
+        app.state_mut().update(msg, &mut FirmwareEffects);
     }
 }
 
 pub(crate) fn view(state: &AppModel) -> impl View<BinaryColor, AppModel> + use<> {
     state.view()
+}
+
+struct FirmwareEffects;
+impl pico_ledger_core::signals::Effects for FirmwareEffects {
+    fn send(
+        &mut self,
+        command: crate::signals::SignerMessage,
+    ) -> Result<(), pico_ledger_core::signals::CommandQueueFull> {
+        crate::signals::SIGNER_CHANNEL
+            .try_send(command)
+            .map_err(|_| pico_ledger_core::signals::CommandQueueFull)
+    }
+    fn activity(&mut self) {
+        crate::signals::ACTIVITY_SIGNAL.signal(());
+    }
 }
