@@ -20,7 +20,7 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                     Ok(words) => {
                         MESSAGE_QUEUE
                             .send(Message::SeedPhraseGenerated(words))
-                            .await
+                            .await;
                     }
                     Err(err) => log_error!("Seed generation failed: {}", err),
                 }
@@ -38,7 +38,7 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                 Ok(signature) => {
                     MESSAGE_QUEUE
                         .send(Message::TransactionSigned { signature })
-                        .await
+                        .await;
                 }
                 Err(err) => log_error!("Signing failed: {}", err),
             },
