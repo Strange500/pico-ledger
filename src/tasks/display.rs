@@ -41,39 +41,43 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
 
     let mut target = EmbeddedGraphicsRenderTarget::new(&mut display);
 
-    let mut animate_until = Instant::now();
+    let mut animation_active = false;
+    let mut last_frame = Instant::now();
     loop {
-        if app.should_redraw() || target.clear_animation_status() {
+        // Account for actual elapsed time, including I2C flushes and input that
+        // interrupts the frame timer. A busy input queue must not freeze time.
+        let now = Instant::now();
+        app.advance_time(core::time::Duration::from_micros(
+            (now - last_frame).as_micros(),
+        ));
+        last_frame = now;
+
+        if app.should_redraw() || animation_active {
             target.clear(BinaryColor::Off);
             app.render_animated(&mut target, &BinaryColor::On);
             if target.display_mut().flush().is_err() {
                 log_warn!("Failed to flush display buffer");
             }
         }
+        // This is a read-and-clear operation: retain its result until the next
+        // frame. Never consume it in the timer branch or a short-circuit OR.
+        animation_active = target.clear_animation_status();
 
-        // Poll only during a short transition window. Outside it the task sleeps
-        // directly on the input queue, avoiding continuous I2C traffic.
-        if Instant::now() < animate_until {
+        // Buoyant, rather than an arbitrary deadline, decides when animations
+        // finish. Once idle, sleep directly on input without polling or I2C.
+        if animation_active {
             match select(
                 MESSAGE_QUEUE.receive(),
                 Timer::after(Duration::from_millis(40)),
             )
             .await
             {
-                Either::First(msg) => {
-                    app.state_mut().update(msg, &mut FirmwareEffects);
-                    animate_until = Instant::now() + Duration::from_millis(360);
-                }
-                Either::Second(()) => {
-                    app.advance_time(Duration::from_millis(40));
-                    target.clear_animation_status();
-                }
+                Either::First(msg) => app.state_mut().update(msg, &mut FirmwareEffects),
+                Either::Second(()) => {}
             }
         } else {
             let msg = MESSAGE_QUEUE.receive().await;
             app.state_mut().update(msg, &mut FirmwareEffects);
-            app.advance_time(Duration::from_millis(40));
-            animate_until = Instant::now() + Duration::from_millis(360);
         }
     }
 }

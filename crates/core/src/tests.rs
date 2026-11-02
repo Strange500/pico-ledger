@@ -10,6 +10,56 @@ use crate::ui::{
 use crate::wallet::*;
 use alloc::vec::Vec;
 
+#[test]
+fn animation_frames_continue_without_input_until_buoyant_is_idle() {
+    use buoyant::{
+        animation::Animation,
+        app::App,
+        primitives::Size,
+        render_target::{EmbeddedGraphicsRenderTarget, RenderTarget},
+        view::prelude::*,
+    };
+    use core::time::Duration;
+    use embedded_graphics::{mock_display::MockDisplay, pixelcolor::BinaryColor};
+
+    // Longer than the former 360 ms polling window.
+    let view = |wide: &bool| {
+        Rectangle
+            .frame()
+            .with_width(if *wide { 60 } else { 10 })
+            .with_height(10)
+            .animated(Animation::linear(Duration::from_secs(1)), *wide)
+    };
+    let mut app = App::new(false, Size::new(64, 64), view);
+    let mut display = MockDisplay::<BinaryColor>::new();
+    display.set_allow_overdraw(true);
+    let mut target = EmbeddedGraphicsRenderTarget::new(&mut display);
+    app.render_animated(&mut target, &BinaryColor::On);
+    target.clear_animation_status();
+
+    *app.state_mut() = true;
+    app.render_animated(&mut target, &BinaryColor::On);
+    let mut animation_active = target.clear_animation_status();
+    let mut frames = 0;
+    while animation_active {
+        assert!(frames < 30, "animation must eventually let the pump sleep");
+        app.advance_time(Duration::from_millis(40));
+        // Advancing the clock alone does not set App's redraw flag.
+        assert!(!app.should_redraw());
+        assert!(app.should_redraw() || animation_active);
+        target.clear(BinaryColor::Off);
+        app.render_animated(&mut target, &BinaryColor::On);
+        animation_active = target.clear_animation_status();
+        frames += 1;
+    }
+    assert!(
+        frames >= 25,
+        "all frames, including the final one, must render"
+    );
+    assert!(!app.should_redraw());
+    assert!(!target.clear_animation_status());
+}
+
 const PASSWORD: [&str; 8] = ["1", "2", "3", "4", "5", "6", "7", "8"];
 const WRONG: [&str; 8] = ["8"; 8];
 
