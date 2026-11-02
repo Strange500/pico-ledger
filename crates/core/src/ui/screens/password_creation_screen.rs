@@ -1,4 +1,7 @@
+use buoyant::animation::Animation;
+use buoyant::view::prelude::*;
 use buoyant::view::{ForEach, Text, VStack, View};
+use core::time::Duration;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::iso_8859_14::FONT_6X12;
 use embedded_graphics::pixelcolor::BinaryColor;
@@ -46,6 +49,14 @@ impl PasswordCreationScreen {
         VStack::new((
             Text::new("CREATE 8-DIGIT PIN", &FONT_6X10),
             Text::new(PIN_STEPS[step], &FONT_6X10),
+            Rectangle
+                .frame()
+                .with_width(self.password.iter().filter(|p| !p.is_empty()).count() as u32 * 8)
+                .with_height(3)
+                .animated(
+                    Animation::ease_out(Duration::from_millis(120)),
+                    self.password.iter().filter(|p| !p.is_empty()).count() as u32,
+                ),
             Text::new(masked_password.join(" "), &FONT_6X10),
             ForEach::<10>::new_horizontal(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], move |i| {
                 if *i == digit as usize {

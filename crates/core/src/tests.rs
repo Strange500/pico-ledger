@@ -60,6 +60,54 @@ fn animation_frames_continue_without_input_until_buoyant_is_idle() {
     assert!(!target.clear_animation_status());
 }
 
+#[test]
+fn progress_bar_renders_intermediate_widths_as_value_changes() {
+    use buoyant::{
+        animation::Animation,
+        app::App,
+        primitives::Size,
+        render_target::{EmbeddedGraphicsRenderTarget, RenderTarget},
+        view::prelude::*,
+    };
+    use core::time::Duration;
+    use embedded_graphics::{mock_display::MockDisplay, pixelcolor::BinaryColor};
+
+    let view = |progress: &u32| {
+        Rectangle
+            .frame()
+            .with_width(*progress)
+            .with_height(4)
+            .animated(Animation::ease_out(Duration::from_millis(120)), *progress)
+    };
+    let mut app = App::new(0_u32, Size::new(32, 8), view);
+    let mut display = MockDisplay::<BinaryColor>::new();
+    display.set_allow_overdraw(true);
+    let mut target = EmbeddedGraphicsRenderTarget::new(&mut display);
+    app.render_animated(&mut target, &BinaryColor::On);
+    target.clear_animation_status();
+    *app.state_mut() = 16;
+    app.render_animated(&mut target, &BinaryColor::On);
+    assert!(target.clear_animation_status());
+    let mut previous = target.display().clone();
+    let mut changed = false;
+    for _ in 0..5 {
+        app.advance_time(Duration::from_millis(40));
+        target.clear(BinaryColor::Off);
+        app.render_animated(&mut target, &BinaryColor::On);
+        if target.display() != &previous {
+            changed = true;
+        }
+        previous = target.display().clone();
+        if !target.clear_animation_status() {
+            break;
+        }
+    }
+    assert!(
+        changed,
+        "intermediate animation frames must change rendered pixels"
+    );
+}
+
 const PASSWORD: [&str; 8] = ["1", "2", "3", "4", "5", "6", "7", "8"];
 const WRONG: [&str; 8] = ["8"; 8];
 

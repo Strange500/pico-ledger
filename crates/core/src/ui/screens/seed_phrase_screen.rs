@@ -1,4 +1,7 @@
+use buoyant::animation::Animation;
+use buoyant::view::prelude::*;
 use buoyant::view::{Text, VStack, View};
+use core::time::Duration;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::pixelcolor::BinaryColor;
 
@@ -39,6 +42,14 @@ impl SeedPhraseScreen {
 
         VStack::new((
             Text::new(page_text, &FONT_6X10),
+            Rectangle
+                .frame()
+                .with_width((self.step as u32 + 1) * 8)
+                .with_height(3)
+                .animated(
+                    Animation::ease_out(Duration::from_millis(120)),
+                    self.step as u32,
+                ),
             Text::new(w1, &FONT_6X10),
             Text::new(w2, &FONT_6X10),
             Text::new(w3, &FONT_6X10),
