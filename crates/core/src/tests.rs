@@ -192,18 +192,10 @@ fn seed_pagination_stays_in_bounds_and_exits() {
     assert!(matches!(app, AppModel::Home(_)));
 }
 #[test]
-fn lock_and_password_responses_drive_navigation() {
+fn home_button_locks_wallet_and_password_responses_drive_navigation() {
     let mut app = AppModel::Home(crate::ui::screens::home_screen::HomeScreen::new());
     let mut effects = Recorder::default();
     app.update(Message::Next, &mut effects);
-    assert_eq!(
-        effects.commands.pop(),
-        Some(SignerMessage::Sign {
-            tx_hash: [1; 32],
-            address_index: 1
-        })
-    );
-    app.update(Message::Lock, &mut effects);
     assert!(matches!(app, AppModel::Lock(_)));
     assert_eq!(effects.commands.pop(), Some(SignerMessage::Lock));
     for _ in 0..8 {

@@ -17,9 +17,10 @@ impl InitScreen {
 
     pub fn view(&self) -> impl View<BinaryColor, AppModel> {
         VStack::new((
-            Text::new("Bip39 Seed Generator", &FONT_6X10),
+            Text::new("PICO LEDGER", &FONT_6X10),
+            Text::new("Offline wallet", &FONT_6X10),
             Spacer::default(),
-            Text::new("Press left to generate a new seed phrase", &FONT_6X10),
+            Text::new("RIGHT: CREATE WALLET", &FONT_6X10),
         ))
         .padding(Edges::Horizontal, 4)
         .padding(Edges::Vertical, 2)
