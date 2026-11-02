@@ -2,9 +2,10 @@ use buoyant::render_target::RenderTarget;
 use buoyant::{
     app::App, primitives::Size, render_target::EmbeddedGraphicsRenderTarget, view::prelude::*,
 };
+use embassy_futures::select::{select, Either};
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::I2C0;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
@@ -40,19 +41,44 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
 
     let mut target = EmbeddedGraphicsRenderTarget::new(&mut display);
 
+    let mut animation_active = false;
+    let mut last_frame = Instant::now();
     loop {
-        if app.should_redraw() || target.clear_animation_status() {
+        // Account for actual elapsed time, including I2C flushes and input that
+        // interrupts the frame timer. A busy input queue must not freeze time.
+        let now = Instant::now();
+        app.advance_time(core::time::Duration::from_micros(
+            (now - last_frame).as_micros(),
+        ));
+        last_frame = now;
+
+        if app.should_redraw() || animation_active {
             target.clear(BinaryColor::Off);
-            // Render animated transition between source and target trees
             app.render_animated(&mut target, &BinaryColor::On);
-            // Clear for the next frame
-            if let Ok(()) = target.display_mut().flush() {
-            } else {
+            if target.display_mut().flush().is_err() {
                 log_warn!("Failed to flush display buffer");
             }
         }
-        let msg = MESSAGE_QUEUE.receive().await;
-        app.state_mut().update(msg, &mut FirmwareEffects);
+        // This is a read-and-clear operation: retain its result until the next
+        // frame. Never consume it in the timer branch or a short-circuit OR.
+        animation_active = target.clear_animation_status();
+
+        // Buoyant, rather than an arbitrary deadline, decides when animations
+        // finish. Once idle, sleep directly on input without polling or I2C.
+        if animation_active {
+            match select(
+                MESSAGE_QUEUE.receive(),
+                Timer::after(Duration::from_millis(40)),
+            )
+            .await
+            {
+                Either::First(msg) => app.state_mut().update(msg, &mut FirmwareEffects),
+                Either::Second(()) => {}
+            }
+        } else {
+            let msg = MESSAGE_QUEUE.receive().await;
+            app.state_mut().update(msg, &mut FirmwareEffects);
+        }
     }
 }
 

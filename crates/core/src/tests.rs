@@ -10,6 +10,104 @@ use crate::ui::{
 use crate::wallet::*;
 use alloc::vec::Vec;
 
+#[test]
+fn animation_frames_continue_without_input_until_buoyant_is_idle() {
+    use buoyant::{
+        animation::Animation,
+        app::App,
+        primitives::Size,
+        render_target::{EmbeddedGraphicsRenderTarget, RenderTarget},
+        view::prelude::*,
+    };
+    use core::time::Duration;
+    use embedded_graphics::{mock_display::MockDisplay, pixelcolor::BinaryColor};
+
+    // Longer than the former 360 ms polling window.
+    let view = |wide: &bool| {
+        Rectangle
+            .frame()
+            .with_width(if *wide { 60 } else { 10 })
+            .with_height(10)
+            .animated(Animation::linear(Duration::from_secs(1)), *wide)
+    };
+    let mut app = App::new(false, Size::new(64, 64), view);
+    let mut display = MockDisplay::<BinaryColor>::new();
+    display.set_allow_overdraw(true);
+    let mut target = EmbeddedGraphicsRenderTarget::new(&mut display);
+    app.render_animated(&mut target, &BinaryColor::On);
+    target.clear_animation_status();
+
+    *app.state_mut() = true;
+    app.render_animated(&mut target, &BinaryColor::On);
+    let mut animation_active = target.clear_animation_status();
+    let mut frames = 0;
+    while animation_active {
+        assert!(frames < 30, "animation must eventually let the pump sleep");
+        app.advance_time(Duration::from_millis(40));
+        // Advancing the clock alone does not set App's redraw flag.
+        assert!(!app.should_redraw());
+        assert!(app.should_redraw() || animation_active);
+        target.clear(BinaryColor::Off);
+        app.render_animated(&mut target, &BinaryColor::On);
+        animation_active = target.clear_animation_status();
+        frames += 1;
+    }
+    assert!(
+        frames >= 25,
+        "all frames, including the final one, must render"
+    );
+    assert!(!app.should_redraw());
+    assert!(!target.clear_animation_status());
+}
+
+#[test]
+fn progress_bar_renders_intermediate_widths_as_value_changes() {
+    use buoyant::{
+        animation::Animation,
+        app::App,
+        primitives::Size,
+        render_target::{EmbeddedGraphicsRenderTarget, RenderTarget},
+        view::prelude::*,
+    };
+    use core::time::Duration;
+    use embedded_graphics::{mock_display::MockDisplay, pixelcolor::BinaryColor};
+
+    let view = |progress: &u32| {
+        Rectangle
+            .frame()
+            .with_width(*progress)
+            .with_height(4)
+            .animated(Animation::ease_out(Duration::from_millis(120)), *progress)
+    };
+    let mut app = App::new(0_u32, Size::new(32, 8), view);
+    let mut display = MockDisplay::<BinaryColor>::new();
+    display.set_allow_overdraw(true);
+    let mut target = EmbeddedGraphicsRenderTarget::new(&mut display);
+    app.render_animated(&mut target, &BinaryColor::On);
+    target.clear_animation_status();
+    *app.state_mut() = 16;
+    app.render_animated(&mut target, &BinaryColor::On);
+    assert!(target.clear_animation_status());
+    let mut previous = target.display().clone();
+    let mut changed = false;
+    for _ in 0..5 {
+        app.advance_time(Duration::from_millis(40));
+        target.clear(BinaryColor::Off);
+        app.render_animated(&mut target, &BinaryColor::On);
+        if target.display() != &previous {
+            changed = true;
+        }
+        previous = target.display().clone();
+        if !target.clear_animation_status() {
+            break;
+        }
+    }
+    assert!(
+        changed,
+        "intermediate animation frames must change rendered pixels"
+    );
+}
+
 const PASSWORD: [&str; 8] = ["1", "2", "3", "4", "5", "6", "7", "8"];
 const WRONG: [&str; 8] = ["8"; 8];
 
@@ -192,18 +290,10 @@ fn seed_pagination_stays_in_bounds_and_exits() {
     assert!(matches!(app, AppModel::Home(_)));
 }
 #[test]
-fn lock_and_password_responses_drive_navigation() {
+fn home_button_locks_wallet_and_password_responses_drive_navigation() {
     let mut app = AppModel::Home(crate::ui::screens::home_screen::HomeScreen::new());
     let mut effects = Recorder::default();
     app.update(Message::Next, &mut effects);
-    assert_eq!(
-        effects.commands.pop(),
-        Some(SignerMessage::Sign {
-            tx_hash: [1; 32],
-            address_index: 1
-        })
-    );
-    app.update(Message::Lock, &mut effects);
     assert!(matches!(app, AppModel::Lock(_)));
     assert_eq!(effects.commands.pop(), Some(SignerMessage::Lock));
     for _ in 0..8 {

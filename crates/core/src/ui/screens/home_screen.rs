@@ -5,6 +5,7 @@ use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::pixelcolor::BinaryColor;
 
 use crate::signals::{Message, SignerMessage};
+use crate::ui::screens::lockscreen::LockScreen;
 use crate::ui::state::AppModel;
 
 pub struct HomeScreen;
@@ -15,9 +16,15 @@ impl HomeScreen {
     }
 
     pub fn view(&self) -> impl View<BinaryColor, AppModel> {
-        VStack::new((Text::new("Home Screen", &FONT_6X10), Spacer::default()))
-            .padding(Edges::Horizontal, 4)
-            .padding(Edges::Vertical, 2)
+        VStack::new((
+            Text::new("PICO LEDGER", &FONT_6X10),
+            Text::new("Wallet unlocked", &FONT_6X10),
+            Spacer::default(),
+            Text::new("No pending request", &FONT_6X10),
+            Text::new("RIGHT: LOCK WALLET", &FONT_6X10),
+        ))
+        .padding(Edges::Horizontal, 4)
+        .padding(Edges::Vertical, 2)
     }
 
     pub fn update(
@@ -26,17 +33,12 @@ impl HomeScreen {
         effects: &mut impl crate::signals::Effects,
     ) -> Option<AppModel> {
         if let Message::Next = message {
-            let dummy_tx_hash = [1u8; 32];
-
-            effects
-                .send(SignerMessage::Sign {
-                    tx_hash: dummy_tx_hash,
-                    address_index: 1,
-                })
-                .ok();
-
-            log::info!("Sent SignerMessage::Sign to Effects");
-            None
+            if effects.send(SignerMessage::Lock).is_ok() {
+                Some(AppModel::Lock(LockScreen::new()))
+            } else {
+                log::error!("Failed to lock wallet");
+                None
+            }
         } else if let Message::TransactionSigned { signature } = message {
             log::info!("Received signature: {signature:?}");
             None

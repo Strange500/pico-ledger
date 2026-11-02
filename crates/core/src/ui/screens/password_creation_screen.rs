@@ -1,4 +1,7 @@
-use buoyant::view::{Divider, ForEach, Spacer, Text, VStack, View};
+use buoyant::animation::Animation;
+use buoyant::view::prelude::*;
+use buoyant::view::{ForEach, Text, VStack, View};
+use core::time::Duration;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::iso_8859_14::FONT_6X12;
 use embedded_graphics::pixelcolor::BinaryColor;
@@ -8,6 +11,19 @@ use crate::ui::screens::loading_screen::{LoadingReason, LoadingScreen};
 use crate::ui::state::AppModel;
 
 static DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+static SELECTED_DIGITS: [&str; 10] = [
+    "[0]", "[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]", "[9]",
+];
+static PIN_STEPS: [&str; 8] = [
+    "PIN 01/08",
+    "PIN 02/08",
+    "PIN 03/08",
+    "PIN 04/08",
+    "PIN 05/08",
+    "PIN 06/08",
+    "PIN 07/08",
+    "PIN 08/08",
+];
 
 pub struct PasswordCreationScreen {
     pub password: [&'static str; 8],
@@ -24,31 +40,32 @@ impl PasswordCreationScreen {
 
     pub fn view(&self) -> impl View<BinaryColor, AppModel> {
         let digit = self.digit;
+        let step = self
+            .password
+            .iter()
+            .position(|&p| p.is_empty())
+            .unwrap_or(7);
+        let masked_password = self.password.map(|p| if p.is_empty() { "_" } else { "*" });
         VStack::new((
-            Text::new("Create Password", &FONT_6X10),
-            Divider::new(1),
-            Spacer::default(),
-            Text::new(self.password.join(" "), &FONT_6X10),
-            Spacer::default(),
+            Text::new("CREATE 8-DIGIT PIN", &FONT_6X10),
+            Text::new(PIN_STEPS[step], &FONT_6X10),
+            Rectangle
+                .frame()
+                .with_width(self.password.iter().filter(|p| !p.is_empty()).count() as u32 * 8)
+                .with_height(3)
+                .animated(
+                    Animation::ease_out(Duration::from_millis(120)),
+                    self.password.iter().filter(|p| !p.is_empty()).count() as u32,
+                ),
+            Text::new(masked_password.join(" "), &FONT_6X10),
             ForEach::<10>::new_horizontal(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], move |i| {
                 if *i == digit as usize {
-                    Text::new(
-                        match DIGITS.get(*i) {
-                            Some(digit) => digit,
-                            None => "",
-                        },
-                        &FONT_6X12,
-                    )
+                    Text::new(SELECTED_DIGITS[*i], &FONT_6X12)
                 } else {
-                    Text::new(
-                        match DIGITS.get(*i) {
-                            Some(digit) => digit,
-                            None => "",
-                        },
-                        &FONT_6X10,
-                    )
+                    Text::new(DIGITS[*i], &FONT_6X10)
                 }
             }),
+            Text::new("R:+1 L:-1 BOTH:OK", &FONT_6X10),
         ))
     }
 
