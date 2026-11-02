@@ -2,9 +2,10 @@ use buoyant::render_target::RenderTarget;
 use buoyant::{
     app::App, primitives::Size, render_target::EmbeddedGraphicsRenderTarget, view::prelude::*,
 };
+use embassy_futures::select::{select, Either};
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::I2C0;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
@@ -40,19 +41,40 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
 
     let mut target = EmbeddedGraphicsRenderTarget::new(&mut display);
 
+    let mut animate_until = Instant::now();
     loop {
         if app.should_redraw() || target.clear_animation_status() {
             target.clear(BinaryColor::Off);
-            // Render animated transition between source and target trees
             app.render_animated(&mut target, &BinaryColor::On);
-            // Clear for the next frame
-            if let Ok(()) = target.display_mut().flush() {
-            } else {
+            if target.display_mut().flush().is_err() {
                 log_warn!("Failed to flush display buffer");
             }
         }
-        let msg = MESSAGE_QUEUE.receive().await;
-        app.state_mut().update(msg, &mut FirmwareEffects);
+
+        // Poll only during a short transition window. Outside it the task sleeps
+        // directly on the input queue, avoiding continuous I2C traffic.
+        if Instant::now() < animate_until {
+            match select(
+                MESSAGE_QUEUE.receive(),
+                Timer::after(Duration::from_millis(40)),
+            )
+            .await
+            {
+                Either::First(msg) => {
+                    app.state_mut().update(msg, &mut FirmwareEffects);
+                    animate_until = Instant::now() + Duration::from_millis(360);
+                }
+                Either::Second(()) => {
+                    app.advance_time(Duration::from_millis(40));
+                    target.clear_animation_status();
+                }
+            }
+        } else {
+            let msg = MESSAGE_QUEUE.receive().await;
+            app.state_mut().update(msg, &mut FirmwareEffects);
+            app.advance_time(Duration::from_millis(40));
+            animate_until = Instant::now() + Duration::from_millis(360);
+        }
     }
 }
 
