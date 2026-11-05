@@ -82,41 +82,19 @@ fn authenticated_wrong_length_is_an_error() {
     );
 }
 #[test]
-fn wallet_lock_unlock_and_signing() {
-    use bitcoin::{
-        bip32::Xpriv,
-        key::Secp256k1,
-        secp256k1::{ecdsa::Signature, Message as Digest},
-    };
+fn wallet_lock_unlock() {
     let mut wallet = Wallet::default();
-    assert!(wallet.sign([1; 32], 1).is_err());
+    assert_eq!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
     assert!(wallet.unlock(&PASSWORD).is_err());
     wallet.generate(&mut [0; 32], &PASSWORD, [1; 12]).unwrap();
     assert!(wallet.generate(&mut [2; 32], &PASSWORD, [2; 12]).is_err());
-    let signature = wallet.sign([1; 32], 1).unwrap();
-    let secp = Secp256k1::new();
-    let mnemonic = bip39::Mnemonic::from_entropy(&[0; 32]).unwrap();
-    let master = Xpriv::new_master(
-        bitcoin::Network::Testnet,
-        &mnemonic.to_seed_normalized("12345678"),
-    )
-    .unwrap();
-    let path: bitcoin::bip32::DerivationPath = "m/84'/0'/0'/0/1".parse().unwrap();
-    let child = master.derive_priv(&secp, &path).unwrap();
-    let public = child.private_key.public_key(&secp);
-    secp.verify_ecdsa(
-        &Digest::from_digest([1; 32]),
-        &Signature::from_compact(&signature).unwrap(),
-        &public,
-    )
-    .unwrap();
-    assert_ne!(signature, wallet.sign([1; 32], 2).unwrap());
+    assert_ne!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
     wallet.lock();
-    assert!(wallet.sign([1; 32], 1).is_err());
+    assert_eq!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
     assert!(wallet.unlock(&WRONG).is_err());
-    assert!(wallet.sign([1; 32], 1).is_err());
+    assert_eq!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
     wallet.unlock(&PASSWORD).unwrap();
-    assert_eq!(wallet.sign([1; 32], 1).unwrap(), signature);
+    assert_ne!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
 }
 #[test]
 fn password_entry_wraps_and_emits_generate_once_complete() {
@@ -196,12 +174,9 @@ fn lock_and_password_responses_drive_navigation() {
     let mut app = AppModel::Home(crate::ui::screens::home_screen::HomeScreen::new());
     let mut effects = Recorder::default();
     app.update(Message::Next, &mut effects);
-    assert_eq!(
-        effects.commands.pop(),
-        Some(SignerMessage::Sign {
-            tx_hash: [1; 32],
-            address_index: 1
-        })
+    assert!(
+        effects.commands.is_empty(),
+        "Home must never request blind signing"
     );
     app.update(Message::Lock, &mut effects);
     assert!(matches!(app, AppModel::Lock(_)));

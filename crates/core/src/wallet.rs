@@ -1,11 +1,7 @@
-use core::str::FromStr;
-
-use alloc::format;
 use alloc::vec::Vec;
 use bip39::Mnemonic;
-use bitcoin::bip32::{DerivationPath, Xpriv};
-use bitcoin::key::Secp256k1;
-use bitcoin::secp256k1::Message as SecpMessage;
+use bitcoin::bip32::Xpriv;
+use bitcoin::secp256k1::{All, Secp256k1};
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::KeyInit;
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
@@ -14,6 +10,49 @@ use zeroize::{Zeroize, Zeroizing};
 
 static SALT: &[u8] = b"pico-ledger-salt";
 static NETWORK: bitcoin::network::Network = bitcoin::network::Network::Testnet;
+
+/// Owns a backend key without exposing Copy/Clone. Cleanup also runs on early return.
+/// rust-bitcoin/secp256k1 internal copies and compiler spills remain outside this guard.
+pub(crate) struct SecretXpriv(pub(crate) Xpriv);
+
+impl Zeroize for SecretXpriv {
+    fn zeroize(&mut self) {
+        self.0.private_key.non_secure_erase();
+        <bitcoin::bip32::ChainCode as AsMut<[u8]>>::as_mut(&mut self.0.chain_code).zeroize();
+    }
+}
+
+impl Drop for SecretXpriv {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+fn randomized_context(randomness: &mut [u8; 32]) -> Secp256k1<All> {
+    let seed = Zeroizing::new(*randomness);
+    randomness.zeroize();
+    let mut secp = Secp256k1::new();
+    secp.seeded_randomize(&seed);
+    secp
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::*;
+
+    #[test]
+    fn owned_extended_key_cleanup_erases_secret_and_chain_code() {
+        let mut key = SecretXpriv(Xpriv::new_master(NETWORK, &[42; 64]).unwrap());
+        key.zeroize();
+        // secp256k1 intentionally overwrites SecretKey with ones, a valid scalar.
+        assert_eq!(key.0.private_key.secret_bytes(), [1; 32]);
+        assert_eq!(&key.0.chain_code[..], &[0; 32]);
+        // Drop repeats the same cleanup; explicit erasure is idempotent.
+        key.zeroize();
+        assert_eq!(key.0.private_key.secret_bytes(), [1; 32]);
+        assert_eq!(&key.0.chain_code[..], &[0; 32]);
+    }
+}
 
 pub fn derive_encryption_key(password: &[&'static str; 8]) -> [u8; 32] {
     let password = Zeroizing::new(password.join(""));
@@ -113,17 +152,42 @@ impl Wallet {
         self.seed = Some(Zeroizing::new(seed));
         Ok(())
     }
-    pub fn sign(&self, tx_hash: [u8; 32], address_index: u32) -> Result<[u8; 64], &'static str> {
+    fn master_key(&self) -> Result<SecretXpriv, &'static str> {
         let seed = self.seed.as_ref().ok_or("Wallet locked")?;
-        let secp = Secp256k1::signing_only();
-        let master = Xpriv::new_master(NETWORK, seed.as_ref()).map_err(|_| "Invalid master key")?;
-        let path = DerivationPath::from_str(&format!("m/84'/0'/0'/0/{address_index}"))
-            .map_err(|_| "Invalid path")?;
-        let child = master
-            .derive_priv(&secp, &path)
-            .map_err(|_| "Invalid child key")?;
-        Ok(secp
-            .sign_ecdsa(&SecpMessage::from_digest(tx_hash), &child.private_key)
-            .serialize_compact())
+        Xpriv::new_master(NETWORK, seed.as_ref())
+            .map(SecretXpriv)
+            .map_err(|_| "Invalid master key")
+    }
+
+    /// Requires fresh CSPRNG/TRNG bytes for side-channel blinding, not host PSBT data
+    /// or a fixed seed. Consumes and clears randomness even on failure.
+    pub fn review_psbt(
+        &self,
+        randomness: &mut [u8; 32],
+        bytes: &[u8],
+    ) -> Result<crate::psbt::TransactionReview, &'static str> {
+        let secp = randomized_context(randomness);
+        let master = self.master_key()?;
+        Ok(crate::psbt::validate(bytes, &master.0, &secp)?.review)
+    }
+
+    /// Validates before calling the trusted approver with the exact transaction review.
+    /// No signature is produced on rejection. The immutable PSBT cannot be swapped after
+    /// approval. This callback is NOT a physical-presence proof: only trusted device UI
+    /// code may implement it. Firmware signing remains disconnected until that UI exists.
+    /// Requires fresh CSPRNG/TRNG randomness as in `review_psbt`; always clears it.
+    pub fn sign_psbt(
+        &self,
+        randomness: &mut [u8; 32],
+        bytes: &[u8],
+        approve: impl FnOnce(&crate::psbt::TransactionReview) -> bool,
+    ) -> Result<Vec<u8>, &'static str> {
+        let secp = randomized_context(randomness);
+        let master = self.master_key()?;
+        let validated = crate::psbt::validate(bytes, &master.0, &secp)?;
+        if !approve(&validated.review) {
+            return Err("Transaction rejected");
+        }
+        validated.sign(&master.0, &secp)
     }
 }
