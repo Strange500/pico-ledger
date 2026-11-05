@@ -8,6 +8,27 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
     let mut wallet = Wallet::default();
     loop {
         match SIGNER_CHANNEL.receive().await {
+            #[cfg(feature = "psbt-demo")]
+            SignerMessage::SignDemo => {
+                // Never pass the user's wallet to this closed public-key demo.
+                let mut randomness = [0; 32];
+                trng.fill_bytes(&mut randomness).await;
+                let result = pico_ledger_core::demo::sign_demo(&mut randomness);
+                match &result {
+                    Ok(bytes) => {
+                        use core::fmt::Write;
+                        let mut hex = alloc::string::String::with_capacity(bytes.len() * 2);
+                        for byte in bytes {
+                            let _ = write!(hex, "{byte:02x}");
+                        }
+                        log_info!("TEST ONLY signed PSBT hex: {}", hex.as_str());
+                    }
+                    Err(err) => log_error!("TEST ONLY PSBT failed: {}", err),
+                }
+                MESSAGE_QUEUE
+                    .send(Message::DemoSigned(result.is_ok()))
+                    .await;
+            }
             SignerMessage::GenerateSeed { password } => {
                 if wallet.is_initialized() {
                     continue;

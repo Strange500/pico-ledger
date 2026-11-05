@@ -8,12 +8,20 @@ pub enum Message {
     Select,
     PasswordChecked(bool),
     Lock,
+    #[cfg(feature = "psbt-demo")]
+    DemoSigned(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SignerMessage {
-    GenerateSeed { password: [&'static str; 8] },
-    CheckPassword { password: [&'static str; 8] },
+    #[cfg(feature = "psbt-demo")]
+    SignDemo,
+    GenerateSeed {
+        password: [&'static str; 8],
+    },
+    CheckPassword {
+        password: [&'static str; 8],
+    },
     Lock,
 }
 

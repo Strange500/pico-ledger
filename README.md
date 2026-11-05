@@ -13,7 +13,7 @@ Bare-metal Bitcoin hardware wallet firmware for the **Raspberry Pi Pico 2 W** (R
 - **Live USB Serial Logging**: Exposes a USB CDC-ACM virtual COM port (`/dev/ttyACM0`) through `embassy-usb-logger` for real-time diagnostics.
 - **SWD RTT Logging**: Simultaneously streams logs over SWD via `defmt-rtt` when using a debug probe like `probe-rs`.
 - **Portable Core**: Host-tested wallet logic and UI state shared with the firmware.
-- **PSBT v0 Backend**: Strict testnet BIP84/P2WPKH validation, transaction review, and partial signing. **Device signing remains disabled pending physical confirmation UI**; see [policy and integration blockers](docs/psbt.md).
+- **PSBT v0 Backend**: Strict testnet BIP84/P2WPKH validation, transaction review, and partial signing. **User-wallet device signing remains disabled pending physical confirmation UI**; see [policy and integration blockers](docs/psbt.md). An opt-in [TEST ONLY left-button demo](docs/psbt-demo.md) signs a fixed unfunded PSBT with a separate, public key.
 - **Reproducible Nix Environment**: Complete Nix flake providing `picotool`, `tio`, `probe-rs`, `flip-link`, Wokwi simulation, and cross-compilation toolchains.
 
 ---
@@ -24,6 +24,7 @@ Bare-metal Bitcoin hardware wallet firmware for the **Raspberry Pi Pico 2 W** (R
 |---|---|---|---|
 | **USB** | Host PC | Power, Firmware Flashing, CDC-ACM Serial Logs | Connects via micro-USB; appears as `/dev/ttyACM0` |
 | **GP2** | Pushbutton | User Input | Active-low; internal pull-up enabled; other button leg to GND |
+| **GP3** | Left pushbutton | Back / test-only PSBT demo on Home | Active-low; internal pull-up; other leg to GND |
 | **GP4** | SSD1306 OLED | I2C0 SDA (Data) | Pulled high by display module; connects to OLED SDA |
 | **GP5** | SSD1306 OLED | I2C0 SCL (Clock) | 400 kHz fast-mode I2C; connects to OLED SCL |
 | **3V3 (Pin 36)** | SSD1306 OLED | Display Power (VCC) | 3.3V power supply rail |

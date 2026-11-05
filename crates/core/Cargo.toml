@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[features]
+default = []
+psbt-demo = []
+
+[[example]]
+name = "demo_psbt"
+required-features = ["psbt-demo"]
+
 [dependencies]
 log = "0.4.34"
 bip39 = { version = "=3.0.0", default-features = false }

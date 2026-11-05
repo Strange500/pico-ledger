@@ -9,6 +9,11 @@ name = "pico-ledger"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
+[features]
+default = []
+# Public-key fixture only; never signs with the user's wallet.
+psbt-demo = ["pico-ledger-core/psbt-demo"]
+
 [dependencies]
 buoyant = "0.7.1"
 embedded-graphics = "0.8.2"
