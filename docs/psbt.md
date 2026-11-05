@@ -1,5 +1,10 @@
 # PSBT signing policy and integration boundary
 
+The opt-in [TEST ONLY hardware demo](psbt-demo.md) is a deliberately separate
+exception: a left-button press signs only a compiled-in, unfunded fixture with a
+public demo seed, never with the user's wallet. All production signing/review
+blockers below remain unchanged.
+
 ## Status: tested core, not an end-to-end hardware signer
 
 The portable core imports binary PSBT v0, validates the entire transaction, produces a
