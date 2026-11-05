@@ -1,11 +1,6 @@
-use core::str::FromStr;
-
-use alloc::format;
 use alloc::vec::Vec;
 use bip39::Mnemonic;
-use bitcoin::bip32::{DerivationPath, Xpriv};
-use bitcoin::key::Secp256k1;
-use bitcoin::secp256k1::Message as SecpMessage;
+use bitcoin::bip32::Xpriv;
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::KeyInit;
 use chacha20poly1305::{ChaCha20Poly1305, Nonce};
@@ -113,17 +108,32 @@ impl Wallet {
         self.seed = Some(Zeroizing::new(seed));
         Ok(())
     }
-    pub fn sign(&self, tx_hash: [u8; 32], address_index: u32) -> Result<[u8; 64], &'static str> {
+    fn master_key(&self) -> Result<Xpriv, &'static str> {
         let seed = self.seed.as_ref().ok_or("Wallet locked")?;
-        let secp = Secp256k1::signing_only();
-        let master = Xpriv::new_master(NETWORK, seed.as_ref()).map_err(|_| "Invalid master key")?;
-        let path = DerivationPath::from_str(&format!("m/84'/0'/0'/0/{address_index}"))
-            .map_err(|_| "Invalid path")?;
-        let child = master
-            .derive_priv(&secp, &path)
-            .map_err(|_| "Invalid child key")?;
-        Ok(secp
-            .sign_ecdsa(&SecpMessage::from_digest(tx_hash), &child.private_key)
-            .serialize_compact())
+        Xpriv::new_master(NETWORK, seed.as_ref()).map_err(|_| "Invalid master key")
+    }
+
+    pub fn review_psbt(
+        &self,
+        bytes: &[u8],
+    ) -> Result<crate::psbt::TransactionReview, &'static str> {
+        Ok(crate::psbt::validate(bytes, &self.master_key()?)?.review)
+    }
+
+    /// Validates before calling the trusted approver with the exact transaction review.
+    /// No signature is produced on rejection. The immutable PSBT cannot be swapped after
+    /// approval. This callback is NOT a physical-presence proof: only trusted device UI
+    /// code may implement it. Firmware signing remains disconnected until that UI exists.
+    pub fn sign_psbt(
+        &self,
+        bytes: &[u8],
+        approve: impl FnOnce(&crate::psbt::TransactionReview) -> bool,
+    ) -> Result<Vec<u8>, &'static str> {
+        let master = self.master_key()?;
+        let validated = crate::psbt::validate(bytes, &master)?;
+        if !approve(&validated.review) {
+            return Err("Transaction rejected");
+        }
+        validated.sign(&master)
     }
 }
