@@ -10,6 +10,39 @@ use pico_ledger_core::wallet::Wallet;
 
 const PASSWORD: [&str; 8] = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
+#[test]
+fn context_entropy_is_consumed_on_success_rejection_and_error() {
+    let (mut wallet, psbt) = fixture();
+    let bytes = psbt.serialize();
+    let mut randomness = [7; 32];
+    wallet.review_psbt(&mut randomness, &bytes).unwrap();
+    assert_eq!(randomness, [0; 32]);
+    randomness.fill(8);
+    let first = wallet.sign_psbt(&mut randomness, &bytes, |_| true).unwrap();
+    assert_eq!(randomness, [0; 32]);
+    randomness.fill(9);
+    let second = wallet.sign_psbt(&mut randomness, &bytes, |_| true).unwrap();
+    assert_eq!(randomness, [0; 32]);
+    assert_eq!(
+        first, second,
+        "Blinding must not change deterministic signatures"
+    );
+    randomness.fill(10);
+    assert!(wallet
+        .sign_psbt(&mut randomness, &bytes, |_| false)
+        .is_err());
+    assert_eq!(randomness, [0; 32]);
+    randomness.fill(11);
+    assert!(wallet.review_psbt(&mut randomness, b"invalid").is_err());
+    assert_eq!(randomness, [0; 32]);
+    wallet.lock();
+    randomness.fill(12);
+    assert!(wallet
+        .sign_psbt(&mut randomness, &bytes, |_| panic!("locked"))
+        .is_err());
+    assert_eq!(randomness, [0; 32]);
+}
+
 fn fixture() -> (Wallet, Psbt) {
     let mut wallet = Wallet::default();
     wallet.generate(&mut [0; 32], &PASSWORD, [1; 12]).unwrap();
@@ -67,14 +100,16 @@ fn fixture() -> (Wallet, Psbt) {
 fn validates_reviews_and_signs_real_bip143_digest() {
     let (wallet, psbt) = fixture();
     let bytes = psbt.serialize();
-    let review = wallet.review_psbt(&bytes).unwrap();
+    let review = wallet.review_psbt(&mut [42; 32], &bytes).unwrap();
     assert_eq!(review.fee_sat, 1_000);
     assert_eq!(review.total_input_sat, 100_000);
     assert_eq!(review.total_output_sat, 99_000);
     assert_eq!(review.outputs.len(), 1);
     assert!(!review.outputs[0].is_change);
     assert!(review.outputs[0].address.starts_with("tb1q"));
-    let signed = wallet.sign_psbt(&bytes, |exact| exact == &review).unwrap();
+    let signed = wallet
+        .sign_psbt(&mut [42; 32], &bytes, |exact| exact == &review)
+        .unwrap();
     let signed = Psbt::deserialize(&signed).unwrap();
     assert_eq!(signed.unsigned_tx, psbt.unsigned_tx);
     assert_eq!(signed.inputs[0].partial_sigs.len(), 1);
@@ -104,21 +139,31 @@ fn validates_reviews_and_signs_real_bip143_digest() {
 #[test]
 fn refusal_and_lock_never_sign() {
     let (mut wallet, psbt) = fixture();
-    assert!(wallet.sign_psbt(&psbt.serialize(), |_| false).is_err());
-    wallet.lock();
-    assert!(wallet.review_psbt(&psbt.serialize()).is_err());
     assert!(wallet
-        .sign_psbt(&psbt.serialize(), |_| panic!("locked callback"))
+        .sign_psbt(&mut [42; 32], &psbt.serialize(), |_| false)
+        .is_err());
+    wallet.lock();
+    assert!(wallet
+        .review_psbt(&mut [42; 32], &psbt.serialize())
+        .is_err());
+    assert!(wallet
+        .sign_psbt(&mut [42; 32], &psbt.serialize(), |_| panic!(
+            "locked callback"
+        ))
         .is_err());
     wallet.unlock(&PASSWORD).unwrap();
-    assert!(wallet.sign_psbt(&psbt.serialize(), |_| true).is_ok());
+    assert!(wallet
+        .sign_psbt(&mut [42; 32], &psbt.serialize(), |_| true)
+        .is_ok());
 }
 
 fn reject(psbt: Psbt, wallet: &Wallet) {
     let bytes = psbt.serialize();
-    assert!(wallet.review_psbt(&bytes).is_err());
+    assert!(wallet.review_psbt(&mut [42; 32], &bytes).is_err());
     assert!(wallet
-        .sign_psbt(&bytes, |_| panic!("invalid PSBT reached approval"))
+        .sign_psbt(&mut [42; 32], &bytes, |_| panic!(
+            "invalid PSBT reached approval"
+        ))
         .is_err());
 }
 
@@ -208,11 +253,11 @@ fn rejects_negative_fee_duplicates_and_bad_change_claim() {
 fn rejects_malformed_trailing_oversized_and_non_v0_data() {
     let (wallet, psbt) = fixture();
     for bytes in [vec![], b"not a psbt".to_vec(), vec![0; 16_385]] {
-        assert!(wallet.review_psbt(&bytes).is_err());
+        assert!(wallet.review_psbt(&mut [42; 32], &bytes).is_err());
     }
     let mut bytes = psbt.serialize();
     bytes.push(0);
-    assert!(wallet.review_psbt(&bytes).is_err());
+    assert!(wallet.review_psbt(&mut [42; 32], &bytes).is_err());
     let mut p = psbt;
     p.version = 2;
     reject(p, &wallet);
@@ -250,13 +295,15 @@ fn signs_multiple_inputs_and_verified_change_without_witness_utxo() {
     second.witness_utxo = None;
     psbt.unsigned_tx.input.push(txin);
     psbt.inputs.push(second);
-    let review = wallet.review_psbt(&psbt.serialize()).unwrap();
+    let review = wallet
+        .review_psbt(&mut [42; 32], &psbt.serialize())
+        .unwrap();
     assert_eq!(review.input_count, 2);
     assert_eq!(review.fee_sat, 1_000);
     assert!(!review.outputs[0].is_change);
     assert!(review.outputs[1].is_change);
     let signed = wallet
-        .sign_psbt(&psbt.serialize(), |r| r == &review)
+        .sign_psbt(&mut [42; 32], &psbt.serialize(), |r| r == &review)
         .unwrap();
     let parsed = Psbt::deserialize(&signed).unwrap();
     for i in 0..2 {
@@ -278,7 +325,10 @@ fn signs_multiple_inputs_and_verified_change_without_witness_utxo() {
         )
         .unwrap();
     }
-    assert_eq!(wallet.sign_psbt(&signed, |_| true).unwrap(), signed);
+    assert_eq!(
+        wallet.sign_psbt(&mut [42; 32], &signed, |_| true).unwrap(),
+        signed
+    );
 }
 
 #[test]
@@ -288,8 +338,12 @@ fn verifies_signature_against_independently_assembled_bip143_preimage() {
         hashes::{sha256d, Hash},
     };
     let (wallet, psbt) = fixture();
-    let signed =
-        Psbt::deserialize(&wallet.sign_psbt(&psbt.serialize(), |_| true).unwrap()).unwrap();
+    let signed = Psbt::deserialize(
+        &wallet
+            .sign_psbt(&mut [42; 32], &psbt.serialize(), |_| true)
+            .unwrap(),
+    )
+    .unwrap();
     let (key, sig) = signed.inputs[0].partial_sigs.iter().next().unwrap();
     let tx = &psbt.unsigned_tx;
     let mut preimage = serialize(&tx.version);
@@ -327,10 +381,12 @@ fn verifies_signature_against_independently_assembled_bip143_preimage() {
 #[test]
 fn never_approves_a_different_transaction_review() {
     let (wallet, mut psbt) = fixture();
-    let original = wallet.review_psbt(&psbt.serialize()).unwrap();
+    let original = wallet
+        .review_psbt(&mut [42; 32], &psbt.serialize())
+        .unwrap();
     psbt.unsigned_tx.output[0].value = Amount::from_sat(98_000);
     assert!(wallet
-        .sign_psbt(&psbt.serialize(), |r| r == &original)
+        .sign_psbt(&mut [42; 32], &psbt.serialize(), |r| r == &original)
         .is_err());
 }
 
@@ -361,7 +417,9 @@ fn rejects_unexpected_metadata_and_invalid_existing_signatures() {
             .0,
     );
     reject(p, &wallet);
-    let signed = wallet.sign_psbt(&psbt.serialize(), |_| true).unwrap();
+    let signed = wallet
+        .sign_psbt(&mut [42; 32], &psbt.serialize(), |_| true)
+        .unwrap();
     let mut p = Psbt::deserialize(&signed).unwrap();
     p.unsigned_tx.output[0].value = Amount::from_sat(98_000);
     reject(p, &wallet);
@@ -415,7 +473,7 @@ fn all_truncations_duplicate_keys_and_hostile_counts_are_rejected() {
     let bytes = psbt.serialize();
     for end in 0..bytes.len() {
         assert!(
-            wallet.review_psbt(&bytes[..end]).is_err(),
+            wallet.review_psbt(&mut [42; 32], &bytes[..end]).is_err(),
             "truncation {end}"
         );
     }
@@ -425,7 +483,7 @@ fn all_truncations_duplicate_keys_and_hostile_counts_are_rejected() {
     let mut entry = vec![1, 0, tx.len() as u8];
     entry.extend(&tx);
     duplicate.splice(5..5, entry);
-    assert!(wallet.review_psbt(&duplicate).is_err());
+    assert!(wallet.review_psbt(&mut [42; 32], &duplicate).is_err());
     // Huge counts must be rejected before rust-bitcoin allocates vectors.
     let mut hostile = b"psbt\xff".to_vec();
     let mut tx = 2i32.to_le_bytes().to_vec();
@@ -433,10 +491,10 @@ fn all_truncations_duplicate_keys_and_hostile_counts_are_rejected() {
     hostile.extend([1, 0, tx.len() as u8]);
     hostile.extend(tx);
     hostile.push(0);
-    assert!(wallet.review_psbt(&hostile).is_err());
+    assert!(wallet.review_psbt(&mut [42; 32], &hostile).is_err());
     let mut nonminimal = bytes;
     nonminimal.splice(5..6, [0xfd, 1, 0]);
-    assert!(wallet.review_psbt(&nonminimal).is_err());
+    assert!(wallet.review_psbt(&mut [42; 32], &nonminimal).is_err());
 }
 
 #[test]
@@ -459,7 +517,9 @@ fn bounds_previous_transaction_vectors_and_round_trip_signature_space() {
     p.inputs[0].non_witness_utxo.as_mut().unwrap().input[0].witness =
         Witness::from_slice(&[vec![1]]);
     p.inputs[0].sighash_type = Some(bitcoin::EcdsaSighashType::All.into());
-    assert!(wallet.sign_psbt(&p.serialize(), |_| true).is_ok());
+    assert!(wallet
+        .sign_psbt(&mut [42; 32], &p.serialize(), |_| true)
+        .is_ok());
 
     let mut p = psbt;
     // Grow a previous input's script to just below the encoded PSBT limit.
@@ -475,9 +535,12 @@ fn bounds_previous_transaction_vectors_and_round_trip_signature_space() {
         .compute_txid();
     let bytes = p.serialize();
     assert_eq!(bytes.len(), MAX_PSBT_BYTES - 110);
-    let signed = wallet.sign_psbt(&bytes, |_| true).unwrap();
+    let signed = wallet.sign_psbt(&mut [42; 32], &bytes, |_| true).unwrap();
     assert!(signed.len() <= MAX_PSBT_BYTES);
-    assert_eq!(wallet.sign_psbt(&signed, |_| true).unwrap(), signed);
+    assert_eq!(
+        wallet.sign_psbt(&mut [42; 32], &signed, |_| true).unwrap(),
+        signed
+    );
     p.inputs[0].non_witness_utxo.as_mut().unwrap().input[0].script_sig =
         ScriptBuf::from_bytes(vec![0; filler + 2]);
     p.unsigned_tx.input[0].previous_output.txid = p.inputs[0]
@@ -486,7 +549,7 @@ fn bounds_previous_transaction_vectors_and_round_trip_signature_space() {
         .unwrap()
         .compute_txid();
     assert_eq!(
-        wallet.review_psbt(&p.serialize()),
+        wallet.review_psbt(&mut [42; 32], &p.serialize()),
         Err("Insufficient PSBT signature space")
     );
 }

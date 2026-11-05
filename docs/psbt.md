@@ -73,18 +73,35 @@ is not a claim that every temporary copy of derived keys is securely erased.
 
 ## Core API / trust boundary
 
-`Wallet::review_psbt(bytes)` checks the unlocked wallet and returns `TransactionReview`:
+`Wallet::review_psbt(&mut randomness, bytes)` checks the unlocked wallet and returns `TransactionReview`:
 transaction id, version, lock time, input count/sequences, all output addresses and
 integer satoshi amounts, verified change flags, input/output totals, and absolute fee.
 There is no mutation or signature.
 
-`Wallet::sign_psbt(bytes, approve)` independently imports and validates the bytes,
+`Wallet::sign_psbt(&mut randomness, bytes, approve)` independently imports and validates the bytes,
 then calls a **trusted in-process approver** with a shared reference to the exact
 review. Only a true result permits signing. The validated PSBT is privately owned and
 cannot be replaced or edited between approval and signing. False, parse/validation
 errors, or a locked/uninitialized wallet return an error and no signed PSBT. All inputs
 are validated before the callback, and the returned result is atomic (never a partially
 returned failure).
+
+Both methods require **32 fresh cryptographically secure random bytes** from the trusted
+caller on every invocation (RP2350 TRNG in any future firmware integration, an OS CSPRNG
+on a host). They consume and clear the caller's buffer even on error. Do not use fixed
+bytes, transaction data, wallet-derived material, or randomness supplied by the remote
+coordinator. Fixed seeds in host tests are test-only; the core cannot assess entropy quality.
+One context is randomized with `seeded_randomize` before any secret-key public derivation,
+then reused for ownership validation and signing. Blinding does not change deterministic
+ECDSA signatures and does not replace fresh physical approval.
+
+Backend-owned master and derived `Xpriv` values have a non-Copy RAII owner which explicitly
+erases the secret scalar with secp256k1's `non_secure_erase` and zeroizes the chain code on
+scope exit, including rejection/error paths. Signing children are dropped immediately after
+signing. The blinding-seed copy is zeroized too. This is **best-effort cleanup, not a full
+secret-memory guarantee**: rust-bitcoin 0.32.102's BIP32 internals create Copy intermediates
+and HMAC state outside these guards, and compiler-generated copies/register spills and
+secp256k1 internals have not been audited. No dependency-level erasure is claimed.
 
 The callback is an application trust boundary, **not proof of physical presence**.
 Passing `|_| true` is suitable only for controlled host tests, not production firmware.

@@ -1,4 +1,5 @@
 //! Conservative PSBT-v0 / native P2WPKH policy. No transport or physical UI lives here.
+use crate::wallet::SecretXpriv;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -56,6 +57,7 @@ fn checked_amount(total: u64, amount: u64) -> Result<u64, &'static str> {
 
 fn owned_path(
     master: &Xpriv,
+    secp: &Secp256k1<secp256k1::All>,
     key: &secp256k1::PublicKey,
     (fingerprint, path): &KeySource,
     change_only: bool,
@@ -66,14 +68,15 @@ fn owned_path(
             if *chain <= 1 && (!change_only || *chain == 1) => {}
         _ => return Err("Unsupported BIP84 path (testnet account zero only)"),
     }
-    let secp = Secp256k1::new();
-    if *fingerprint != master.fingerprint(&secp) {
+    if *fingerprint != master.fingerprint(secp) {
         return Err("Wrong master fingerprint");
     }
-    let derived = master
-        .derive_priv(&secp, path)
-        .map_err(|_| "Key derivation failed")?;
-    if derived.private_key.public_key(&secp) != *key {
+    let derived = SecretXpriv(
+        master
+            .derive_priv(secp, path)
+            .map_err(|_| "Key derivation failed")?,
+    );
+    if derived.0.private_key.public_key(secp) != *key {
         return Err("Origin does not match derived key");
     }
     Ok(ScriptBuf::new_p2wpkh(
@@ -83,7 +86,11 @@ fn owned_path(
     ))
 }
 
-pub(crate) fn validate(bytes: &[u8], master: &Xpriv) -> Result<ValidatedPsbt, &'static str> {
+pub(crate) fn validate(
+    bytes: &[u8],
+    master: &Xpriv,
+    secp: &Secp256k1<secp256k1::All>,
+) -> Result<ValidatedPsbt, &'static str> {
     preflight(bytes)?;
     let mut reader = bytes;
     let psbt = Psbt::deserialize_from_reader(&mut reader).map_err(|_| "Invalid PSBT")?;
@@ -163,7 +170,7 @@ pub(crate) fn validate(bytes: &[u8], master: &Xpriv) -> Result<ValidatedPsbt, &'
             .iter()
             .next()
             .ok_or("Missing origin")?;
-        if owned_path(master, key, origin, false)? != utxo.script_pubkey {
+        if owned_path(master, secp, key, origin, false)? != utxo.script_pubkey {
             return Err("UTXO script is not owned P2WPKH");
         }
         total_input_sat = checked_amount(total_input_sat, utxo.value.to_sat())?;
@@ -202,7 +209,7 @@ pub(crate) fn validate(bytes: &[u8], master: &Xpriv) -> Result<ValidatedPsbt, &'
                     .iter()
                     .next()
                     .ok_or("Missing output origin")?;
-                if owned_path(master, key, origin, true)? != txout.script_pubkey {
+                if owned_path(master, secp, key, origin, true)? != txout.script_pubkey {
                     return Err("False change claim");
                 }
                 true
@@ -245,8 +252,11 @@ pub(crate) fn validate(bytes: &[u8], master: &Xpriv) -> Result<ValidatedPsbt, &'
 
 impl ValidatedPsbt {
     /// Only called after approval of self.review; owns the exact, immutable transaction.
-    pub(crate) fn sign(mut self, master: &Xpriv) -> Result<Vec<u8>, &'static str> {
-        let secp = Secp256k1::new();
+    pub(crate) fn sign(
+        mut self,
+        master: &Xpriv,
+        secp: &Secp256k1<secp256k1::All>,
+    ) -> Result<Vec<u8>, &'static str> {
         let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
         for (i, (key, path)) in self.paths.iter().enumerate() {
             let input = &mut self.psbt.inputs[i];
@@ -263,10 +273,13 @@ impl ValidatedPsbt {
             let digest = cache
                 .p2wpkh_signature_hash(i, &utxo.script_pubkey, utxo.value, EcdsaSighashType::All)
                 .map_err(|_| "Invalid sighash")?;
-            let child = master
-                .derive_priv(&secp, path)
-                .map_err(|_| "Key derivation failed")?;
-            let signature = secp.sign_ecdsa(&Message::from(digest), &child.private_key);
+            let child = SecretXpriv(
+                master
+                    .derive_priv(secp, path)
+                    .map_err(|_| "Key derivation failed")?,
+            );
+            let signature = secp.sign_ecdsa(&Message::from(digest), &child.0.private_key);
+            drop(child);
             input.partial_sigs.insert(
                 PublicKey::new(*key),
                 ecdsa::Signature::sighash_all(signature),

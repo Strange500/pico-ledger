@@ -84,17 +84,17 @@ fn authenticated_wrong_length_is_an_error() {
 #[test]
 fn wallet_lock_unlock() {
     let mut wallet = Wallet::default();
-    assert_eq!(wallet.review_psbt(&[]), Err("Wallet locked"));
+    assert_eq!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
     assert!(wallet.unlock(&PASSWORD).is_err());
     wallet.generate(&mut [0; 32], &PASSWORD, [1; 12]).unwrap();
     assert!(wallet.generate(&mut [2; 32], &PASSWORD, [2; 12]).is_err());
-    assert_ne!(wallet.review_psbt(&[]), Err("Wallet locked"));
+    assert_ne!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
     wallet.lock();
-    assert_eq!(wallet.review_psbt(&[]), Err("Wallet locked"));
+    assert_eq!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
     assert!(wallet.unlock(&WRONG).is_err());
-    assert_eq!(wallet.review_psbt(&[]), Err("Wallet locked"));
+    assert_eq!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
     wallet.unlock(&PASSWORD).unwrap();
-    assert_ne!(wallet.review_psbt(&[]), Err("Wallet locked"));
+    assert_ne!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
 }
 #[test]
 fn password_entry_wraps_and_emits_generate_once_complete() {
