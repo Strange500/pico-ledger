@@ -1,35 +1,61 @@
 # TEST ONLY: physical left-button PSBT demo
 
 **Never use this build for funds. Never fund the demo key.** This is a closed
-hardware exercise, not a usable hardware wallet or a transaction approval flow.
+hardware review/signing exercise, not a usable production hardware wallet.
 It is off by default. The normal wallet's seed/password are not used, replaced,
 unlocked, or passed into the demo signer.
 
 ## Scope and trust boundary
 
 With `--features psbt-demo`, Home displays `TEST ONLY - PSBT`,
-`PUBLIC KEY / NO FUNDS`, and `Left: sign demo`. A physical left press (GP3 to GND)
-travels through the existing 50 ms debounce/release logic as `Message::Back`,
-then Home sends a payload-free `SignerMessage::SignDemo`. The signer task obtains
-fresh RP2350 TRNG bytes for secp256k1 blinding and signs the **compiled-in**
-`fixtures/demo.psbt` with an ephemeral, separate demo wallet. No USB/Wi-Fi input,
-arbitrary PSBT import, user-wallet signing, remote approval, or raw hash signing
-is enabled. Right-only and both-button presses do not sign on Home.
+`PUBLIC KEY / NO FUNDS`, and `Left: review demo`. Physical left (GP3 to GND)
+sends `Message::Back` through the existing 50 ms debounce/release logic. Home
+requests **validation only** with payload-free `SignerMessage::PrepareDemo`.
+The signer uses fresh RP2350 TRNG blinding, validates the compiled-in immutable
+`fixtures/demo.psbt`, retains its complete review, and sends a display-only clone
+with a monotonically increasing session token. No signatures are made here.
+
+The review pages show network/public-key warning, full unsigned txid, version,
+lock time, input/output counts, every input outpoint/address/value/sequence,
+every output address/value/verified-change classification, total input/output,
+fee in integer satoshis, and SIGHASH_ALL. Identifiers are split into numbered
+parts, never ellipsized: at most 20 columns and 3 value lines per 128x64 page.
+Left goes back (clamped at the first page), right advances. Both buttons cancel
+immediately on any review page. The final decision is reachable only by stepping
+through all pages and defaults to **CANCEL**. Left chooses Cancel, right chooses
+Sign, **then a separate both-button press confirms the displayed choice**.
+There is no wraparound from the first page to confirmation. Review/decision
+buttons are ignored until that frame has successfully flushed to the OLED;
+selecting Sign also requires a successful flush before confirmation. Physical
+button events carry the display epoch sampled when the button task observes the
+edge; queued events from older frames are rejected (including pre-render and
+epoch-exhaustion states). This is a fail-closed software guard, not a measured
+interrupt/scheduler latency guarantee; unusually fast presses may be discarded.
+
+Only matching `ConfirmDemo { token }` consumes the signer-owned pending review.
+Signing revalidates the **same immutable compiled-in bytes**, including PSBT
+metadata, and its callback requires equality with the complete retained review.
+Neither UI nor transport can substitute a PSBT or edit the signer's review.
+Wrong-session, cancelled, locked and duplicate confirmations cannot sign.
+`CancelDemo` and signer `Lock` discard pending review; a new request supersedes it.
+There is no USB/Wi-Fi transaction import, user-wallet signing, remote approval,
+or raw hash signing. Default firmware signing remains disconnected.
 
 The demo seed is deliberately public: 32 zero BIP39 entropy bytes (24 words),
 BIP39 passphrase `12345678`, testnet path `m/84'/1'/0'/0/0`. Its temporary encrypted
-copy uses a fixed nonce only because both plaintext and key are public and
-identical; **never copy that nonce practice to real wallets**. The existing core
-policy is unchanged: full previous transaction, matching origins/amounts/scripts,
-SIGHASH_ALL and a verified partial ECDSA signature. The demo callback approves
-only the compiled fixture's 1 input, 1 output, 100000 sat in, 99000 sat out and
-1000 sat fee. It is not a secure review/authorization mechanism.
+copy uses a fixed nonce only because plaintext and key are public and identical;
+**never copy that nonce practice to real wallets**. Existing PSBT policy remains
+unchanged: full previous transaction, matching origins/amounts/scripts,
+SIGHASH_ALL and verified partial ECDSA signatures. The fixture is 1 input,
+1 output, 100000 sat in, 99000 sat out and 1000 sat fee, not chain-spendable.
 
-Repeated presses while Home is busy are ignored; command backpressure permits
-retry. Completion updates Home to `Signed! USB hex` or `Failed - retry left`.
-A lock event leaves Home; late results do not unlock the device. A demo already
-queued can finish after lock, **only with the public demo key**. This is not
-fresh-physical-confirmation or lock-cancellation proof for production signing.
+Preparation and signing are single-flight; full command queues allow retry
+without reporting false success. Completion shows `Signed! USB hex` or
+`Failed - retry left`, and cancellation shows `Cancelled - no sign`.
+A lock event leaves Home; late results never unlock the device. Signing already
+accepted after confirmation may finish before a subsequently queued Lock, using
+**only the public demo key**. This demo does not claim production-grade physical
+presence, atomic lock-vs-confirm ordering, delivery guarantees or hardware testing.
 
 ## Dummy PSBT
 
@@ -68,8 +94,10 @@ cargo build --locked -p pico-ledger --release --features psbt-demo
 Embedded commands need the target, flip-link and ARM-capable clang (see README /
 Nix dev shell). Host tests verify the actual ECDSA signature against BIP143,
 transaction/metadata preservation, signed-PSBT reimport, consumed context entropy,
-fixture structure, default-disabled signing, duplicate presses, backpressure,
-completion/error retry and lock/late-result handling. They do not exercise GPIO,
+fixture structure, full review field pagination, host-rendered 128x64 frames,
+default-disabled signing, explicit default-cancel confirmation, invisible-frame
+blocking, duplicate/stale sessions, backpressure, completion/error retry and
+lock/late-result handling. They do not exercise GPIO,
 the display task, Embassy scheduling, actual TRNG or MCU memory limits.
 
 For an actual **host-only** signing/capture-verifier exercise on Unix:
@@ -99,18 +127,24 @@ PSBT verifier or a hardware attestation.
    (right=next, left=back, both=select). Do not enter a valuable recovery seed or
    reuse a real password; the demo itself always uses its separate public seed.
 4. Confirm the Home `TEST ONLY - PSBT` / `PUBLIC KEY / NO FUNDS` labels. Press and
-   release **only left** once. Expected: `Signing demo...`, then `Signed! USB hex`.
-   The synchronous cryptography runs in the signer task; UI may briefly pause.
+   release **only left** once. Expected: `Validating demo...`, then review pages.
+   Right advances and left goes back; both cancels without producing signed hex.
+   Review every full address/outpoint and the 1000 sat fee. After the final page,
+   expect `Confirm signing?` with CANCEL selected. Right selects SIGN; release,
+   then press both to authorize. Only now expect `Signing demo...`, then
+   `Signed! USB hex`. Cryptography is synchronous; UI may briefly pause.
 5. Capture the complete USB line `TEST ONLY signed PSBT hex: ...` (also emitted
    via RTT). Save **only the hex payload** to `signed.hex`, without log prefix.
    Run the host `demo_psbt verify signed.hex` command above. Expected: exact
    379-byte signed fixture match. USB logging is best effort with a 1024-byte
-   buffer: attach first; missing/truncated output requires another left press.
+   buffer: attach first; missing/truncated output requires another complete review.
    OLED success means signing completed, not guaranteed delivery to the host.
-6. Hold left: there must be no repeated signing while held. Right-only / both
-   must not sign. Release and press left again: a second complete output should
-   verify identically. Let the device lock and check that left does not sign
-   while locked; an already queued public demo may finish. Reboot: ordinary
+6. Hold left: there must be no repeated actions while held. Navigation alone
+   must not emit signed hex. Cancel from a review page and from the final default
+   CANCEL choice: neither may sign. Start another review and confirm: the second
+   complete output should verify identically. Let the device lock DURING review:
+   pending review is discarded and left cannot sign while locked. A signing
+   operation accepted AFTER confirmation may still finish before Lock. Reboot: ordinary
    setup behavior is unchanged, and real user-wallet signing remains absent.
 7. Rebuild/flash **without** `psbt-demo`: Home must show `Signing disabled` and
    left must not emit a signed PSBT.
@@ -118,7 +152,9 @@ PSBT verifier or a hardware attestation.
 Hardware checks above are a manual acceptance procedure, **not claimed results**.
 No board/probe/serial device was available during implementation. Cross-linked
 ELFs do not prove runtime heap/stack fit, physical confirmation timing, display
-rendering or side-channel resistance. Production support still requires full
-on-device review of every output/amount/fee/metadata, a fresh physical approval
-bound to that exact request, robust cancellation/lock semantics and a secure
-transport; see [the original policy/blockers](psbt.md).
+rendering or side-channel resistance. Production user-wallet support still needs
+an independently audited request/authorization path, MCU validation of all pages
+and input freshness, robust lock/confirm race handling, bounded RAM and secure
+transport; see [the original policy/blockers](psbt.md). The host-only `sign_demo`
+shortcut is compiled out for `target_os = "none"`; embedded code uses the
+two-stage session API exclusively.

@@ -14,10 +14,10 @@ const PASSWORD: [&str; 8] = ["1", "2", "3", "4", "5", "6", "7", "8"];
 const WRONG: [&str; 8] = ["8"; 8];
 
 #[derive(Default)]
-struct Recorder {
-    commands: Vec<SignerMessage>,
+pub(crate) struct Recorder {
+    pub(crate) commands: Vec<SignerMessage>,
     activity: usize,
-    full: bool,
+    pub(crate) full: bool,
 }
 impl Effects for Recorder {
     fn send(&mut self, command: SignerMessage) -> Result<(), crate::signals::CommandQueueFull> {
