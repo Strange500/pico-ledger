@@ -14,6 +14,12 @@ pub async fn dual_button_task(mut btn_left: Input<'static>, mut btn_right: Input
         .await
         {
             Either::First(()) | Either::Second(()) => {
+                // Stamp the frame visible at the FIRST physical edge, not after
+                // debounce or queue wait. Old queued presses cannot confirm a
+                // screen that was not yet visible when the press began.
+                #[cfg(feature = "psbt-demo")]
+                let frame =
+                    crate::signals::DISPLAY_FRAME.load(core::sync::atomic::Ordering::Relaxed);
                 // 2. The Grace Period
                 // Wait 50ms to debounce the mechanical switch and give the
                 // user's other finger time to complete the simultaneous press.
@@ -24,12 +30,26 @@ pub async fn dual_button_task(mut btn_left: Input<'static>, mut btn_right: Input
                 let right_pressed = btn_right.is_low();
 
                 // 4. Evaluate the combined state and send exactly one Message
-                if left_pressed && right_pressed {
-                    MESSAGE_QUEUE.send(Message::Select).await;
+                let message = if left_pressed && right_pressed {
+                    Some(Message::Select)
                 } else if left_pressed {
-                    MESSAGE_QUEUE.send(Message::Back).await;
+                    Some(Message::Back)
                 } else if right_pressed {
-                    MESSAGE_QUEUE.send(Message::Next).await;
+                    Some(Message::Next)
+                } else {
+                    None
+                };
+                if let Some(message) = message {
+                    #[cfg(feature = "psbt-demo")]
+                    let message = Message::PhysicalButton {
+                        frame,
+                        button: match message {
+                            Message::Back => pico_ledger_core::signals::PhysicalButton::Left,
+                            Message::Next => pico_ledger_core::signals::PhysicalButton::Right,
+                            _ => pico_ledger_core::signals::PhysicalButton::Both,
+                        },
+                    };
+                    MESSAGE_QUEUE.send(message).await;
                 }
 
                 // 5. Wait for the user to physically release both buttons

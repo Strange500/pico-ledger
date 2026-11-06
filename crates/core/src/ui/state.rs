@@ -20,6 +20,14 @@ pub enum AppModel {
 }
 
 impl AppModel {
+    /// A review cannot advance or authorize an invisible/failed OLED frame.
+    #[cfg(feature = "psbt-demo")]
+    pub fn displayed(&mut self) {
+        if let AppModel::Home(home) = self {
+            home.displayed();
+        }
+    }
+
     pub fn update(&mut self, message: Message, effects: &mut impl crate::signals::Effects) {
         effects.activity();
         log::info!("Received message: ");

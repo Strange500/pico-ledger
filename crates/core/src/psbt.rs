@@ -20,6 +20,13 @@ pub const MAX_OUTPUTS: usize = 8;
 const MAX_MONEY: u64 = 21_000_000 * 100_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewedInput {
+    pub outpoint: bitcoin::OutPoint,
+    pub address: String,
+    pub amount_sat: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReviewedOutput {
     pub address: String,
     pub amount_sat: u64,
@@ -35,6 +42,7 @@ pub struct TransactionReview {
     pub version: i32,
     pub lock_time: u32,
     pub input_count: usize,
+    pub inputs: Vec<ReviewedInput>,
     pub sequences: Vec<u32>,
     pub total_input_sat: u64,
     pub total_output_sat: u64,
@@ -118,6 +126,7 @@ pub(crate) fn validate(
         return Err("Unsupported transaction version");
     }
     let mut paths = Vec::new();
+    let mut inputs = Vec::new();
     let mut total_input_sat = 0;
     let mut cache = SighashCache::new(tx);
     for (i, (txin, input)) in tx.input.iter().zip(&psbt.inputs).enumerate() {
@@ -174,6 +183,13 @@ pub(crate) fn validate(
             return Err("UTXO script is not owned P2WPKH");
         }
         total_input_sat = checked_amount(total_input_sat, utxo.value.to_sat())?;
+        inputs.push(ReviewedInput {
+            outpoint: txin.previous_output,
+            address: Address::from_script(&utxo.script_pubkey, Network::Testnet)
+                .map_err(|_| "Invalid input address")?
+                .to_string(),
+            amount_sat: utxo.value.to_sat(),
+        });
         let digest = cache
             .p2wpkh_signature_hash(i, &utxo.script_pubkey, utxo.value, EcdsaSighashType::All)
             .map_err(|_| "Invalid P2WPKH sighash")?;
@@ -233,6 +249,7 @@ pub(crate) fn validate(
         version: tx.version.0,
         lock_time: tx.lock_time.to_consensus_u32(),
         input_count: tx.input.len(),
+        inputs,
         sequences: tx
             .input
             .iter()

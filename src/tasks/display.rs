@@ -47,11 +47,24 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
             app.render_animated(&mut target, &BinaryColor::On);
             // Clear for the next frame
             if let Ok(()) = target.display_mut().flush() {
+                #[cfg(feature = "psbt-demo")]
+                {
+                    use core::sync::atomic::Ordering;
+                    let frame = crate::signals::DISPLAY_FRAME.load(Ordering::Relaxed);
+                    crate::signals::DISPLAY_FRAME.store(frame.saturating_add(1), Ordering::Relaxed);
+                    app.state_mut().displayed();
+                }
             } else {
                 log_warn!("Failed to flush display buffer");
             }
         }
         let msg = MESSAGE_QUEUE.receive().await;
+        #[cfg(feature = "psbt-demo")]
+        let Some(msg) = msg.for_display_frame(
+            crate::signals::DISPLAY_FRAME.load(core::sync::atomic::Ordering::Relaxed),
+        ) else {
+            continue;
+        };
         app.state_mut().update(msg, &mut FirmwareEffects);
     }
 }
