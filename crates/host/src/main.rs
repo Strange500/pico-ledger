@@ -10,12 +10,18 @@ use std::{
     time::Duration,
 };
 
+mod psbt_builder;
+
 const REQUEST_ID: u16 = 1;
 
 fn usage(program: &str) {
     eprintln!("Usage:");
     eprintln!("  {program} --port <serial-port> ping");
+    eprintln!("  {program} --port <serial-port> export-descriptor <wallet.desc>");
     eprintln!("  {program} --port <serial-port> sign <input.psbt> [output.psbt]");
+    eprintln!("  {program} address <wallet.desc> <chain> <index>");
+    eprintln!("  {program} make-psbt <wallet.desc> <previous-tx.hex> <vout> <input-index>");
+    eprintln!("    <recipient> <amount-sat> <fee-sat> <change-index> <output.psbt>");
 }
 
 fn send(
@@ -73,6 +79,39 @@ fn read_response(
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
+    if args.get(1).is_some_and(|command| command == "address") {
+        if args.len() != 5 {
+            usage(&args[0]);
+            return Err("Invalid address arguments".into());
+        }
+        let descriptor = fs::read_to_string(&args[2])?;
+        println!(
+            "{}",
+            psbt_builder::address(&descriptor, args[3].parse()?, args[4].parse()?)?
+        );
+        return Ok(());
+    }
+    if args.get(1).is_some_and(|command| command == "make-psbt") {
+        if args.len() != 11 {
+            usage(&args[0]);
+            return Err("Invalid make-psbt arguments".into());
+        }
+        let descriptor = fs::read_to_string(&args[2])?;
+        let previous_transaction_hex = fs::read_to_string(&args[3])?;
+        let psbt = psbt_builder::build(&psbt_builder::BuildRequest {
+            descriptor: &descriptor,
+            previous_transaction_hex: &previous_transaction_hex,
+            vout: args[4].parse()?,
+            input_index: args[5].parse()?,
+            recipient: &args[6],
+            amount_sat: args[7].parse()?,
+            fee_sat: args[8].parse()?,
+            change_index: args[9].parse()?,
+        })?;
+        fs::write(&args[10], psbt)?;
+        println!("unsigned PSBT written to {}", args[10]);
+        return Ok(());
+    }
     if args.len() < 4 || args[1] != "--port" {
         usage(args.first().map_or("pico-ledger-cli", String::as_str));
         return Err("Invalid arguments".into());
@@ -85,6 +124,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 return Err("Unexpected ping response".into());
             }
             println!("pico-ledger protocol v1 is ready");
+        }
+        "export-descriptor" if args.len() == 5 => {
+            let (header, descriptor) = send(port, Kind::ExportDescriptor, &[])?;
+            if header.kind == Kind::Error {
+                return Err(String::from_utf8_lossy(&descriptor).into_owned().into());
+            }
+            if header.kind != Kind::Descriptor {
+                return Err("Unexpected descriptor response".into());
+            }
+            core::str::from_utf8(&descriptor)?;
+            fs::write(&args[4], descriptor)?;
+            println!("watch-only descriptor written to {}", args[4]);
         }
         "sign" if (5..=6).contains(&args.len()) => {
             let input = fs::read(&args[4])?;

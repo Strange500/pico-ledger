@@ -135,6 +135,9 @@ where
                 }
                 sign_and_respond(&mut sender, header.request_id, bytes).await;
             }
+            Kind::ExportDescriptor if header.payload_len == 0 => {
+                export_descriptor(&mut sender, header.request_id).await;
+            }
             _ => {
                 let _ = write_response(
                     &mut sender,
@@ -144,6 +147,47 @@ where
                 )
                 .await;
             }
+        }
+    }
+}
+
+async fn export_descriptor<'d, D>(
+    sender: &mut embassy_usb::class::cdc_acm::Sender<'d, D>,
+    request_id: u16,
+) where
+    D: UsbDriver<'d>,
+{
+    if !DISPLAY_READY.load(Ordering::Acquire) {
+        let _ = write_response(sender, request_id, Kind::Error, b"Display unavailable").await;
+        return;
+    }
+    SIGNER_CHANNEL
+        .send(SignerMessage::ExportDescriptor { request_id })
+        .await;
+    let response = USB_RESPONSE_CHANNEL.receive().await;
+    if response.request_id != request_id {
+        let _ = write_response(
+            sender,
+            request_id,
+            Kind::Error,
+            b"Internal request mismatch",
+        )
+        .await;
+        return;
+    }
+    match response.result {
+        Ok(descriptor) => {
+            if write_response(sender, request_id, Kind::Descriptor, &descriptor)
+                .await
+                .is_ok()
+            {
+                MESSAGE_QUEUE
+                    .send(pico_ledger_core::signals::Message::DescriptorExported)
+                    .await;
+            }
+        }
+        Err(error) => {
+            let _ = write_response(sender, request_id, Kind::Error, error.as_bytes()).await;
         }
     }
 }

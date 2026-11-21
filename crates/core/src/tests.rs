@@ -97,6 +97,25 @@ fn wallet_lock_unlock() {
     wallet.unlock(&PASSWORD).unwrap();
     assert_ne!(wallet.review_psbt(&mut [42; 32], &[]), Err("Wallet locked"));
 }
+
+#[test]
+fn descriptor_export_is_watch_only_and_requires_unlock() {
+    let mut wallet = Wallet::default();
+    wallet.generate(&mut [0; 32], &PASSWORD, [1; 12]).unwrap();
+    let mut randomness = [9; 32];
+    let descriptor = wallet.account_descriptor(&mut randomness).unwrap();
+    assert_eq!(randomness, [0; 32]);
+    assert!(descriptor.starts_with("wpkh(["));
+    assert!(descriptor.contains("/84h/1h/0h]tpub"));
+    assert!(descriptor.ends_with("/<0;1>/*)"));
+    assert!(!descriptor.contains("tprv"));
+
+    wallet.lock();
+    assert_eq!(
+        wallet.account_descriptor(&mut [9; 32]),
+        Err("Wallet locked")
+    );
+}
 #[test]
 fn password_entry_wraps_and_emits_generate_once_complete() {
     let mut app = AppModel::Init(InitScreen::new());
@@ -263,6 +282,30 @@ fn psbt_received_off_home_is_rejected() {
     assert_eq!(
         effects.commands,
         [SignerMessage::RejectPsbt { request_id: 9 }]
+    );
+}
+
+#[test]
+fn descriptor_export_requires_physical_confirmation() {
+    let mut app = AppModel::Home(crate::ui::screens::home_screen::HomeScreen::new());
+    let mut effects = Recorder::default();
+    app.update(Message::DescriptorReview { request_id: 11 }, &mut effects);
+    assert!(effects.commands.is_empty());
+    app.update(Message::Select, &mut effects);
+    assert_eq!(
+        effects.commands,
+        [SignerMessage::ApproveDescriptor { request_id: 11 }]
+    );
+
+    let mut locked = AppModel::Lock(LockScreen::new());
+    let mut locked_effects = Recorder::default();
+    locked.update(
+        Message::DescriptorReview { request_id: 12 },
+        &mut locked_effects,
+    );
+    assert_eq!(
+        locked_effects.commands,
+        [SignerMessage::RejectDescriptor { request_id: 12 }]
     );
 }
 #[test]

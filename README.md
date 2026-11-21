@@ -201,6 +201,20 @@ cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
   --port /dev/ttyACM1 sign unsigned.psbt signed.psbt
 ```
 
+Export the watch-only testnet descriptor and build a PSBT without exposing the seed:
+
+```bash
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  --port /dev/ttyACM1 export-descriptor wallet.desc
+
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  address wallet.desc 0 0
+
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  make-psbt wallet.desc previous-tx.hex 0 0 tb1q... \
+  90000 1000 0 unsigned.psbt
+```
+
 See [`docs/usb-protocol.md`](docs/usb-protocol.md) for framing and the complete flow.
 
 ### Using `tio` (Recommended)

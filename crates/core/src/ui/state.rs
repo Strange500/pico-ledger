@@ -33,6 +33,16 @@ impl AppModel {
                 return;
             }
         }
+        if let Message::DescriptorReview { request_id } = &message {
+            if !matches!(self, AppModel::Home(_)) {
+                effects
+                    .send(SignerMessage::RejectDescriptor {
+                        request_id: *request_id,
+                    })
+                    .ok();
+                return;
+            }
+        }
         if let Message::Lock = message {
             if !matches!(
                 self,

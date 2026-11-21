@@ -5,6 +5,8 @@ use embassy_rp::peripherals::TRNG;
 use embassy_rp::trng::Trng;
 use pico_ledger_core::wallet::{PreparedPsbt, Wallet};
 
+type PendingDescriptor = Option<(u16, alloc::string::String)>;
+
 async fn review_psbt(
     request_id: u16,
     bytes: alloc::vec::Vec<u8>,
@@ -66,10 +68,68 @@ async fn approve_psbt(
         .await;
 }
 
+async fn begin_descriptor_export(
+    request_id: u16,
+    wallet: &Wallet,
+    trng: &mut Trng<'static, TRNG>,
+    psbt_pending: bool,
+    pending: &mut PendingDescriptor,
+) {
+    if psbt_pending || pending.is_some() {
+        USB_RESPONSE_CHANNEL
+            .send(UsbResponse {
+                request_id,
+                result: Err("Another request is pending"),
+            })
+            .await;
+        return;
+    }
+    let mut randomness = [0; 32];
+    trng.fill_bytes(&mut randomness).await;
+    match wallet.account_descriptor(&mut randomness) {
+        Ok(descriptor) => {
+            *pending = Some((request_id, descriptor));
+            MESSAGE_QUEUE
+                .send(Message::DescriptorReview { request_id })
+                .await;
+        }
+        Err(error) => {
+            USB_RESPONSE_CHANNEL
+                .send(UsbResponse {
+                    request_id,
+                    result: Err(error),
+                })
+                .await;
+        }
+    }
+}
+
+async fn complete_descriptor_export(
+    request_id: u16,
+    approved: bool,
+    pending: &mut PendingDescriptor,
+) {
+    if pending.as_ref().is_none_or(|(id, _)| *id != request_id) {
+        return;
+    }
+    let Some((_, descriptor)) = pending.take() else {
+        return;
+    };
+    let result = if approved {
+        Ok(descriptor.into_bytes())
+    } else {
+        Err("Descriptor export rejected on device")
+    };
+    USB_RESPONSE_CHANNEL
+        .send(UsbResponse { request_id, result })
+        .await;
+}
+
 #[embassy_executor::task]
 pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
     let mut wallet = Wallet::default();
     let mut pending = None;
+    let mut pending_descriptor = None;
     loop {
         match SIGNER_CHANNEL.receive().await {
             SignerMessage::GenerateSeed { password } => {
@@ -92,6 +152,14 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
             SignerMessage::Lock => {
                 wallet.lock();
                 if let Some((request_id, _)) = pending.take() {
+                    USB_RESPONSE_CHANNEL
+                        .send(UsbResponse {
+                            request_id,
+                            result: Err("Device locked"),
+                        })
+                        .await;
+                }
+                if let Some((request_id, _)) = pending_descriptor.take() {
                     USB_RESPONSE_CHANNEL
                         .send(UsbResponse {
                             request_id,
@@ -124,6 +192,22 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                         .send(Message::PsbtCancelled { request_id })
                         .await;
                 }
+            }
+            SignerMessage::ExportDescriptor { request_id } => {
+                begin_descriptor_export(
+                    request_id,
+                    &wallet,
+                    &mut trng,
+                    pending.is_some(),
+                    &mut pending_descriptor,
+                )
+                .await;
+            }
+            SignerMessage::ApproveDescriptor { request_id } => {
+                complete_descriptor_export(request_id, true, &mut pending_descriptor).await;
+            }
+            SignerMessage::RejectDescriptor { request_id } => {
+                complete_descriptor_export(request_id, false, &mut pending_descriptor).await;
             }
         }
     }

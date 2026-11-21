@@ -12,6 +12,46 @@ cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
 
 ## Signing
 
+First export the unlocked wallet's watch-only descriptor. It contains the master
+fingerprint and testnet BIP84 account xpub, covering external and change chains. It does
+not contain private keys or seed material.
+
+```bash
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  --port /dev/ttyACM1 export-descriptor wallet.desc
+```
+
+The OLED asks for privacy approval before releasing the descriptor. Press both buttons
+to allow the export or the left button to reject it.
+
+Derive the first receive address and fund it on Bitcoin testnet:
+
+```bash
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  address wallet.desc 0 0
+```
+
+Save the complete raw funding transaction as hexadecimal text in `previous-tx.hex`. Build the
+unsigned PSBT with the funding output number, external address index, recipient, amount,
+fee, change index and output filename:
+
+```bash
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  make-psbt wallet.desc previous-tx.hex 0 0 tb1qrecipient... \
+  90000 1000 0 unsigned.psbt
+```
+
+The builder supports one input. It verifies that the selected previous output belongs to
+the exported descriptor, requires a testnet P2WPKH recipient, embeds the complete previous
+transaction and creates change at `m/84'/1'/0'/1/change-index`. The amount and fee are
+specified in satoshis. If the input exactly equals amount plus fee, no change output is
+created.
+
+The builder cannot determine whether the funding output is confirmed or still unspent.
+Check that state with your testnet node or block explorer before constructing the PSBT.
+
+Send the resulting PSBT to the device:
+
 ```bash
 cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
   --port /dev/ttyACM1 sign unsigned.psbt signed.psbt
@@ -41,9 +81,9 @@ Every request and response starts with a 12-byte little-endian header.
 | 6 | 2 | Request identifier |
 | 8 | 4 | Payload length |
 
-Message kinds are `0x01` ping, `0x02` sign PSBT, `0x80` ready for payload, `0x81`
-pong, `0x82` signed PSBT and `0xff` error. For signing, the host sends the header and
-waits for `0x80` before transmitting the payload. This lets the device reject an invalid
-or oversized length without buffering or draining attacker-controlled data. Error
-payloads contain UTF-8 text. The serial baud setting is ignored by USB CDC, although
-the supplied client requests 115200 baud for compatibility.
+Message kinds are `0x01` ping, `0x02` sign PSBT, `0x03` export descriptor, `0x80` ready
+for payload, `0x81` pong, `0x82` signed PSBT, `0x83` descriptor and `0xff` error. For
+signing, the host sends the header and waits for `0x80` before transmitting the payload.
+This lets the device reject an invalid or oversized length without buffering or draining
+attacker-controlled data. Error payloads contain UTF-8 text. The serial baud setting is
+ignored by USB CDC, although the supplied client requests 115200 baud for compatibility.

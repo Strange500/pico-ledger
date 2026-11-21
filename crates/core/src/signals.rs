@@ -30,6 +30,10 @@ pub enum Message {
         button: PhysicalButton,
         frame: u32,
     },
+    DescriptorReview {
+        request_id: u16,
+    },
+    DescriptorExported,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +51,9 @@ pub enum SignerMessage {
     ReviewPsbt { request_id: u16, bytes: Vec<u8> },
     ApprovePsbt { request_id: u16 },
     RejectPsbt { request_id: u16 },
+    ExportDescriptor { request_id: u16 },
+    ApproveDescriptor { request_id: u16 },
+    RejectDescriptor { request_id: u16 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

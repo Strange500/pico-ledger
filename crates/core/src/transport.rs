@@ -9,9 +9,11 @@ pub const HEADER_LEN: usize = 12;
 pub enum Kind {
     Ping = 1,
     SignPsbt = 2,
+    ExportDescriptor = 3,
     Ready = 0x80,
     Pong = 0x81,
     SignedPsbt = 0x82,
+    Descriptor = 0x83,
     Error = 0xff,
 }
 
@@ -22,9 +24,11 @@ impl TryFrom<u8> for Kind {
         match value {
             1 => Ok(Self::Ping),
             2 => Ok(Self::SignPsbt),
+            3 => Ok(Self::ExportDescriptor),
             0x80 => Ok(Self::Ready),
             0x81 => Ok(Self::Pong),
             0x82 => Ok(Self::SignedPsbt),
+            0x83 => Ok(Self::Descriptor),
             0xff => Ok(Self::Error),
             _ => Err("Unknown message kind"),
         }

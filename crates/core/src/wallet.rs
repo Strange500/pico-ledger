@@ -1,6 +1,6 @@
-use alloc::vec::Vec;
+use alloc::{format, string::String, vec, vec::Vec};
 use bip39::Mnemonic;
-use bitcoin::bip32::Xpriv;
+use bitcoin::bip32::{ChildNumber, DerivationPath, Xpriv, Xpub};
 use bitcoin::secp256k1::{All, Secp256k1};
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::KeyInit;
@@ -174,6 +174,28 @@ impl Wallet {
         Xpriv::new_master(NETWORK, seed.as_ref())
             .map(SecretXpriv)
             .map_err(|_| "Invalid master key")
+    }
+
+    /// Returns a watch-only testnet BIP84 multipath descriptor.
+    pub fn account_descriptor(&self, randomness: &mut [u8; 32]) -> Result<String, &'static str> {
+        let secp = randomized_context(randomness);
+        let master = self.master_key()?;
+        let account_path = DerivationPath::from(vec![
+            ChildNumber::from_hardened_idx(84).map_err(|_| "Invalid purpose")?,
+            ChildNumber::from_hardened_idx(1).map_err(|_| "Invalid coin type")?,
+            ChildNumber::from_hardened_idx(0).map_err(|_| "Invalid account")?,
+        ]);
+        let account = SecretXpriv(
+            master
+                .0
+                .derive_priv(&secp, &account_path)
+                .map_err(|_| "Account derivation failed")?,
+        );
+        let fingerprint = master.0.fingerprint(&secp);
+        let account_public = Xpub::from_priv(&secp, &account.0);
+        Ok(format!(
+            "wpkh([{fingerprint}/84h/1h/0h]{account_public}/<0;1>/*)"
+        ))
     }
 
     /// Requires fresh CSPRNG/TRNG bytes for side-channel blinding, not host PSBT data

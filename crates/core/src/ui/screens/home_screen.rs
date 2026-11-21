@@ -25,6 +25,7 @@ enum Phase {
     Reviewing,
     Confirming,
     Signing,
+    DescriptorConfirmation,
 }
 
 pub struct HomeScreen {
@@ -137,6 +138,12 @@ impl HomeScreen {
                 "Both buttons: SIGN".into(),
                 "L:cancel R:review".into(),
             ),
+            Phase::DescriptorConfirmation => (
+                "Privacy approval".into(),
+                "Export watch-only?".into(),
+                "Host sees addresses".into(),
+                "Both:allow L:cancel".into(),
+            ),
         };
 
         VStack::new((
@@ -215,6 +222,35 @@ impl HomeScreen {
                 self.phase = Phase::Idle;
                 self.pages.clear();
                 self.status = "Transaction rejected";
+            }
+            (Phase::Idle, Message::DescriptorReview { request_id }) => {
+                self.request_id = request_id;
+                self.phase = Phase::DescriptorConfirmation;
+            }
+            (Phase::DescriptorConfirmation, Message::Select) => {
+                if effects
+                    .send(SignerMessage::ApproveDescriptor {
+                        request_id: self.request_id,
+                    })
+                    .is_ok()
+                {
+                    self.phase = Phase::Idle;
+                    self.status = "Exporting descriptor";
+                }
+            }
+            (Phase::DescriptorConfirmation, Message::Back) => {
+                if effects
+                    .send(SignerMessage::RejectDescriptor {
+                        request_id: self.request_id,
+                    })
+                    .is_ok()
+                {
+                    self.phase = Phase::Idle;
+                    self.status = "Export rejected";
+                }
+            }
+            (Phase::Idle, Message::DescriptorExported) => {
+                self.status = "Descriptor exported";
             }
             _ => {}
         }

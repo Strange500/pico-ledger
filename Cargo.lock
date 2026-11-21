@@ -1718,6 +1718,7 @@ dependencies = [
 name = "pico-ledger-cli"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "pico-ledger-core",
  "serialport",
 ]
