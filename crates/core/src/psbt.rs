@@ -6,9 +6,10 @@ use alloc::{
 };
 use bitcoin::{
     bip32::{ChildNumber, DerivationPath, KeySource, Xpriv},
+    consensus::encode::{Decodable, VarInt},
     ecdsa,
     key::Secp256k1,
-    psbt::{Input, Output, Psbt},
+    psbt::Psbt,
     secp256k1::{self, Message},
     sighash::{EcdsaSighashType, SighashCache},
     Address, Network, PublicKey, ScriptBuf, Txid,
@@ -45,7 +46,14 @@ pub struct TransactionReview {
 pub(crate) struct ValidatedPsbt {
     psbt: Psbt,
     pub review: TransactionReview,
-    paths: Vec<(secp256k1::PublicKey, DerivationPath)>,
+    unsigned_inputs: Vec<UnsignedInput>,
+}
+
+struct UnsignedInput {
+    index: usize,
+    key: secp256k1::PublicKey,
+    path: DerivationPath,
+    message: Message,
 }
 
 fn checked_amount(total: u64, amount: u64) -> Result<u64, &'static str> {
@@ -97,12 +105,6 @@ pub(crate) fn validate(
     if !reader.is_empty() {
         return Err("Trailing PSBT data");
     }
-    if psbt.version != 0 {
-        return Err("Only PSBT v0 supported");
-    }
-    if !psbt.xpub.is_empty() || !psbt.unknown.is_empty() || !psbt.proprietary.is_empty() {
-        return Err("Unsupported global metadata");
-    }
     let tx = &psbt.unsigned_tx;
     // Reserve the maximum serialized partial-signature entry per input so that a
     // successfully returned PSBT remains importable under the same byte budget.
@@ -117,7 +119,7 @@ pub(crate) fn validate(
     if tx.version.0 != 1 && tx.version.0 != 2 {
         return Err("Unsupported transaction version");
     }
-    let mut paths = Vec::new();
+    let mut unsigned_inputs = Vec::new();
     let mut total_input_sat = 0;
     let mut cache = SighashCache::new(tx);
     for (i, (txin, input)) in tx.input.iter().zip(&psbt.inputs).enumerate() {
@@ -127,18 +129,6 @@ pub(crate) fn validate(
                 .any(|other| other.previous_output == txin.previous_output)
         {
             return Err("Null or duplicate outpoint");
-        }
-        // Whitelist rather than silently ignoring Taproot, scripts, finalization or extensions.
-        let allowed = Input {
-            non_witness_utxo: input.non_witness_utxo.clone(),
-            witness_utxo: input.witness_utxo.clone(),
-            bip32_derivation: input.bip32_derivation.clone(),
-            partial_sigs: input.partial_sigs.clone(),
-            sighash_type: input.sighash_type,
-            ..Input::default()
-        };
-        if *input != allowed {
-            return Err("Unsupported input metadata");
         }
         if input
             .sighash_type
@@ -177,27 +167,27 @@ pub(crate) fn validate(
         let digest = cache
             .p2wpkh_signature_hash(i, &utxo.script_pubkey, utxo.value, EcdsaSighashType::All)
             .map_err(|_| "Invalid P2WPKH sighash")?;
+        let message = Message::from(digest);
         for (existing_key, sig) in &input.partial_sigs {
             if *existing_key != PublicKey::new(*key) || sig.sighash_type != EcdsaSighashType::All {
                 return Err("Unexpected partial signature");
             }
             Secp256k1::verification_only()
-                .verify_ecdsa(&Message::from(digest), &sig.signature, key)
+                .verify_ecdsa(&message, &sig.signature, key)
                 .map_err(|_| "Invalid existing signature")?;
         }
-        paths.push((*key, origin.1.clone()));
+        if input.partial_sigs.is_empty() {
+            unsigned_inputs.push(UnsignedInput {
+                index: i,
+                key: *key,
+                path: origin.1.clone(),
+                message,
+            });
+        }
     }
     let mut outputs = Vec::new();
     let mut total_output_sat = 0;
     for (txout, output) in tx.output.iter().zip(&psbt.outputs) {
-        if *output
-            != (Output {
-                bip32_derivation: output.bip32_derivation.clone(),
-                ..Output::default()
-            })
-        {
-            return Err("Unsupported output metadata");
-        }
         if !txout.script_pubkey.is_p2wpkh() {
             return Err("Only P2WPKH outputs supported");
         }
@@ -246,7 +236,7 @@ pub(crate) fn validate(
     Ok(ValidatedPsbt {
         psbt,
         review,
-        paths,
+        unsigned_inputs,
     })
 }
 
@@ -257,31 +247,16 @@ impl ValidatedPsbt {
         master: &Xpriv,
         secp: &Secp256k1<secp256k1::All>,
     ) -> Result<Vec<u8>, &'static str> {
-        let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
-        for (i, (key, path)) in self.paths.iter().enumerate() {
-            let input = &mut self.psbt.inputs[i];
-            // Every existing signature was already verified during validation.
-            if !input.partial_sigs.is_empty() {
-                continue;
-            }
-            let prev = input.non_witness_utxo.as_ref().ok_or("Missing UTXO")?;
-            let outpoint = self.psbt.unsigned_tx.input[i].previous_output;
-            let utxo = prev
-                .output
-                .get(outpoint.vout as usize)
-                .ok_or("Missing output")?;
-            let digest = cache
-                .p2wpkh_signature_hash(i, &utxo.script_pubkey, utxo.value, EcdsaSighashType::All)
-                .map_err(|_| "Invalid sighash")?;
+        for input in self.unsigned_inputs {
             let child = SecretXpriv(
                 master
-                    .derive_priv(secp, path)
+                    .derive_priv(secp, &input.path)
                     .map_err(|_| "Key derivation failed")?,
             );
-            let signature = secp.sign_ecdsa(&Message::from(digest), &child.0.private_key);
+            let signature = secp.sign_ecdsa(&input.message, &child.0.private_key);
             drop(child);
-            input.partial_sigs.insert(
-                PublicKey::new(*key),
+            self.psbt.inputs[input.index].partial_sigs.insert(
+                PublicKey::new(input.key),
                 ecdsa::Signature::sighash_all(signature),
             );
         }
@@ -290,6 +265,7 @@ impl ValidatedPsbt {
 }
 
 // Allocation-free framing pass before rust-bitcoin allocates from attacker-supplied counts.
+// This is also the field allowlist: every map rejects unsupported keys before decoding.
 // Bound transaction vector cardinalities as well as the encoded byte size.
 struct Cursor<'a>(&'a [u8]);
 impl<'a> Cursor<'a> {
@@ -299,34 +275,7 @@ impl<'a> Cursor<'a> {
         Ok(head)
     }
     fn number(&mut self) -> Result<usize, &'static str> {
-        let tag = self.take(1)?[0];
-        let n = match tag {
-            0..=252 => u64::from(tag),
-            253 => {
-                let b = self.take(2)?;
-                let n = u64::from(u16::from_le_bytes([b[0], b[1]]));
-                if n < 253 {
-                    return Err("Non-canonical size");
-                }
-                n
-            }
-            254 => {
-                let b = self.take(4)?;
-                let n = u64::from(u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
-                if n <= 0xffff {
-                    return Err("Non-canonical size");
-                }
-                n
-            }
-            255 => {
-                let b = self.take(8)?;
-                let n = u64::from_le_bytes(b.try_into().map_err(|_| "Invalid size")?);
-                if n <= 0xffff_ffff {
-                    return Err("Non-canonical size");
-                }
-                n
-            }
-        };
+        let VarInt(n) = VarInt::consensus_decode(&mut self.0).map_err(|_| "Invalid CompactSize")?;
         usize::try_from(n).map_err(|_| "Size overflow")
     }
     fn blob(&mut self) -> Result<&'a [u8], &'static str> {
