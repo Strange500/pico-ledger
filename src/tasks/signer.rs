@@ -31,17 +31,6 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                     .send(Message::PasswordChecked(wallet.unlock(&password).is_ok()))
                     .await;
             }
-            SignerMessage::Sign {
-                tx_hash,
-                address_index,
-            } => match wallet.sign(tx_hash, address_index) {
-                Ok(signature) => {
-                    MESSAGE_QUEUE
-                        .send(Message::TransactionSigned { signature })
-                        .await;
-                }
-                Err(err) => log_error!("Signing failed: {}", err),
-            },
         }
     }
 }

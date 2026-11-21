@@ -13,6 +13,7 @@ Bare-metal Bitcoin hardware wallet firmware for the **Raspberry Pi Pico 2 W** (R
 - **Live USB Serial Logging**: Exposes a USB CDC-ACM virtual COM port (`/dev/ttyACM0`) through `embassy-usb-logger` for real-time diagnostics.
 - **SWD RTT Logging**: Simultaneously streams logs over SWD via `defmt-rtt` when using a debug probe like `probe-rs`.
 - **Portable Core**: Host-tested wallet logic and UI state shared with the firmware.
+- **PSBT v0 Backend**: Strict testnet BIP84/P2WPKH validation, transaction review, and partial signing. **Device signing remains disabled pending physical confirmation UI**; see [policy and integration blockers](docs/psbt.md).
 - **Reproducible Nix Environment**: Complete Nix flake providing `picotool`, `tio`, `probe-rs`, `flip-link`, Wokwi simulation, and cross-compilation toolchains.
 
 ---

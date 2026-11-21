@@ -4,7 +4,7 @@ use buoyant::view::{Spacer, Text, VStack, View};
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::pixelcolor::BinaryColor;
 
-use crate::signals::{Message, SignerMessage};
+use crate::signals::Message;
 use crate::ui::state::AppModel;
 
 pub struct HomeScreen;
@@ -22,27 +22,11 @@ impl HomeScreen {
 
     pub fn update(
         &mut self,
-        message: Message,
-        effects: &mut impl crate::signals::Effects,
+        _message: Message,
+        _effects: &mut impl crate::signals::Effects,
     ) -> Option<AppModel> {
-        if let Message::Next = message {
-            let dummy_tx_hash = [1u8; 32];
-
-            effects
-                .send(SignerMessage::Sign {
-                    tx_hash: dummy_tx_hash,
-                    address_index: 1,
-                })
-                .ok();
-
-            log::info!("Sent SignerMessage::Sign to Effects");
-            None
-        } else if let Message::TransactionSigned { signature } = message {
-            log::info!("Received signature: {signature:?}");
-            None
-        } else {
-            None
-        }
+        // No signing command until an exhaustive review + physical confirmation UI exists.
+        None
     }
 }
 
