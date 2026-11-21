@@ -1,7 +1,10 @@
-use crate::signals::{Message, MESSAGE_QUEUE};
+use core::sync::atomic::Ordering;
+
+use crate::signals::{Message, DISPLAY_FRAME, MESSAGE_QUEUE};
 use embassy_futures::select::{select, Either};
 use embassy_rp::gpio::Input;
 use embassy_time::Timer;
+use pico_ledger_core::signals::PhysicalButton;
 
 #[embassy_executor::task]
 pub async fn dual_button_task(mut btn_left: Input<'static>, mut btn_right: Input<'static>) {
@@ -14,6 +17,7 @@ pub async fn dual_button_task(mut btn_left: Input<'static>, mut btn_right: Input
         .await
         {
             Either::First(()) | Either::Second(()) => {
+                let frame = DISPLAY_FRAME.load(Ordering::Acquire);
                 // 2. The Grace Period
                 // Wait 50ms to debounce the mechanical switch and give the
                 // user's other finger time to complete the simultaneous press.
@@ -24,12 +28,19 @@ pub async fn dual_button_task(mut btn_left: Input<'static>, mut btn_right: Input
                 let right_pressed = btn_right.is_low();
 
                 // 4. Evaluate the combined state and send exactly one Message
-                if left_pressed && right_pressed {
-                    MESSAGE_QUEUE.send(Message::Select).await;
+                let button = if left_pressed && right_pressed {
+                    Some(PhysicalButton::Both)
                 } else if left_pressed {
-                    MESSAGE_QUEUE.send(Message::Back).await;
+                    Some(PhysicalButton::Left)
                 } else if right_pressed {
-                    MESSAGE_QUEUE.send(Message::Next).await;
+                    Some(PhysicalButton::Right)
+                } else {
+                    None
+                };
+                if let Some(button) = button {
+                    MESSAGE_QUEUE
+                        .send(Message::PhysicalButton { button, frame })
+                        .await;
                 }
 
                 // 5. Wait for the user to physically release both buttons

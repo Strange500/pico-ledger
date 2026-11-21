@@ -3,12 +3,13 @@ use crate::ui::{
     screens::{
         init_screen::InitScreen,
         loading_screen::{LoadingReason, LoadingScreen},
+        lockscreen::LockScreen,
         seed_phrase_screen::SeedPhraseScreen,
     },
     state::AppModel,
 };
 use crate::wallet::*;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 const PASSWORD: [&str; 8] = ["1", "2", "3", "4", "5", "6", "7", "8"];
 const WRONG: [&str; 8] = ["8"; 8];
@@ -195,6 +196,74 @@ fn lock_and_password_responses_drive_navigation() {
     }
     app.update(Message::PasswordChecked(true), &mut effects);
     assert!(matches!(app, AppModel::Home(_)));
+}
+
+#[test]
+fn psbt_review_requires_final_two_button_confirmation() {
+    use bitcoin::hashes::Hash;
+
+    let review = crate::psbt::TransactionReview {
+        txid: bitcoin::Txid::all_zeros(),
+        version: 2,
+        lock_time: 0,
+        input_count: 1,
+        sequences: vec![u32::MAX],
+        total_input_sat: 100_000,
+        total_output_sat: 99_000,
+        fee_sat: 1_000,
+        outputs: vec![crate::psbt::ReviewedOutput {
+            address: "tb1qrecipient".into(),
+            amount_sat: 99_000,
+            is_change: false,
+        }],
+    };
+    let mut app = AppModel::Home(crate::ui::screens::home_screen::HomeScreen::new());
+    let mut effects = Recorder::default();
+    app.update(
+        Message::PsbtReview {
+            request_id: 7,
+            review,
+        },
+        &mut effects,
+    );
+    for _ in 0..11 {
+        app.update(Message::Next, &mut effects);
+    }
+    assert!(effects.commands.is_empty());
+    app.update(Message::Select, &mut effects);
+    assert_eq!(
+        effects.commands,
+        [SignerMessage::ApprovePsbt { request_id: 7 }]
+    );
+}
+
+#[test]
+fn psbt_received_off_home_is_rejected() {
+    use bitcoin::hashes::Hash;
+
+    let mut app = AppModel::Lock(LockScreen::new());
+    let mut effects = Recorder::default();
+    app.update(
+        Message::PsbtReview {
+            request_id: 9,
+            review: crate::psbt::TransactionReview {
+                txid: bitcoin::Txid::all_zeros(),
+                version: 2,
+                lock_time: 0,
+                input_count: 0,
+                sequences: Vec::new(),
+                total_input_sat: 0,
+                total_output_sat: 0,
+                fee_sat: 0,
+                outputs: Vec::new(),
+            },
+        },
+        &mut effects,
+    );
+    assert_eq!(
+        effects.commands,
+        [SignerMessage::RejectPsbt { request_id: 9 }]
+    );
 }
 #[test]
 fn inactivity_does_not_interrupt_setup_or_seed_backup() {

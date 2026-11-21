@@ -4,6 +4,7 @@ extern crate alloc;
 
 pub mod psbt;
 pub mod signals;
+pub mod transport;
 pub mod ui;
 pub mod wallet;
 

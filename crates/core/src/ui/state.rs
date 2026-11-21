@@ -23,6 +23,16 @@ impl AppModel {
     pub fn update(&mut self, message: Message, effects: &mut impl crate::signals::Effects) {
         effects.activity();
         log::info!("Received message: ");
+        if let Message::PsbtReview { request_id, .. } = &message {
+            if !matches!(self, AppModel::Home(_)) {
+                effects
+                    .send(SignerMessage::RejectPsbt {
+                        request_id: *request_id,
+                    })
+                    .ok();
+                return;
+            }
+        }
         if let Message::Lock = message {
             if !matches!(
                 self,

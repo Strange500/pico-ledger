@@ -1,0 +1,10 @@
+[package]
+name = "pico-ledger-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+pico-ledger-core = { path = "../core" }
+serialport = { version = "4.8.1", default-features = false }
+

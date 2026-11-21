@@ -24,7 +24,7 @@ use crate::tasks::button::dual_button_task;
 use crate::tasks::display::display_task;
 use crate::tasks::lock::lock_task;
 use crate::tasks::signer::signer_task;
-use crate::tasks::usb::logger_task;
+use crate::tasks::usb::usb_task;
 use crate::tasks::wifi::cyw43_task;
 
 #[macro_use]
@@ -71,7 +71,7 @@ async fn main(spawner: Spawner) {
 
     // --- 1. USB CDC-ACM ---
     let usb_driver = Driver::new(p.USB, Irqs);
-    spawn_task!(spawner, logger_task(usb_driver), "USB Logger");
+    spawn_task!(spawner, usb_task(usb_driver), "USB Device");
     log_info!("RP2350 (Pico 2 WH) booted - USB serial active");
 
     // --- 2. Générateur Aléatoire (TRNG) ---

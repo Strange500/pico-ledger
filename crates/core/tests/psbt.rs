@@ -137,6 +137,28 @@ fn validates_reviews_and_signs_real_bip143_digest() {
 }
 
 #[test]
+fn prepared_psbt_signs_the_exact_reviewed_transaction() {
+    let (wallet, psbt) = fixture();
+    let original = psbt.serialize();
+    let mut review_randomness = [7; 32];
+    let prepared = wallet
+        .prepare_psbt(&mut review_randomness, &original)
+        .unwrap();
+    let reviewed_txid = prepared.review().txid;
+    assert_eq!(review_randomness, [0; 32]);
+
+    let mut unrelated_copy = original.clone();
+    unrelated_copy[0] ^= 1;
+    let mut signing_randomness = [8; 32];
+    let signed = prepared.sign(&wallet, &mut signing_randomness).unwrap();
+    assert_eq!(signing_randomness, [0; 32]);
+
+    let signed = Psbt::deserialize(&signed).unwrap();
+    assert_eq!(signed.unsigned_tx.compute_txid(), reviewed_txid);
+    assert_eq!(signed.unsigned_tx, psbt.unsigned_tx);
+}
+
+#[test]
 fn refusal_and_lock_never_sign() {
     let (mut wallet, psbt) = fixture();
     assert!(wallet

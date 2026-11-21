@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/core"]
+members = [".", "crates/core", "crates/host"]
 default-members = ["."]
 resolver = "2"
 
@@ -39,6 +39,7 @@ cyw43-pio = { version = "0.10.0", features = ["defmt"] }
 static_cell = "2.1.0"
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-logger = "0.6.0"
+embedded-io-async = "0.7.0"
 log = "0.4.34"
 embedded-alloc = "0.7.0"
 

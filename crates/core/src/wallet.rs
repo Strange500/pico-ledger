@@ -104,6 +104,23 @@ pub struct Wallet {
     encrypted: Option<(Vec<u8>, [u8; 12])>,
     seed: Option<Zeroizing<[u8; 64]>>,
 }
+
+/// A validated transaction held between on-device review and physical approval.
+pub struct PreparedPsbt(crate::psbt::ValidatedPsbt);
+
+impl PreparedPsbt {
+    #[must_use]
+    pub fn review(&self) -> &crate::psbt::TransactionReview {
+        &self.0.review
+    }
+
+    /// Signs the exact PSBT that produced the displayed review.
+    pub fn sign(self, wallet: &Wallet, randomness: &mut [u8; 32]) -> Result<Vec<u8>, &'static str> {
+        let secp = randomized_context(randomness);
+        let master = wallet.master_key()?;
+        self.0.sign(&master.0, &secp)
+    }
+}
 impl Drop for Wallet {
     fn drop(&mut self) {
         self.lock();
@@ -169,6 +186,17 @@ impl Wallet {
         let secp = randomized_context(randomness);
         let master = self.master_key()?;
         Ok(crate::psbt::validate(bytes, &master.0, &secp)?.review)
+    }
+
+    /// Validates a PSBT and retains that exact transaction for later device approval.
+    pub fn prepare_psbt(
+        &self,
+        randomness: &mut [u8; 32],
+        bytes: &[u8],
+    ) -> Result<PreparedPsbt, &'static str> {
+        let secp = randomized_context(randomness);
+        let master = self.master_key()?;
+        crate::psbt::validate(bytes, &master.0, &secp).map(PreparedPsbt)
     }
 
     /// Validates before calling the trusted approver with the exact transaction review.

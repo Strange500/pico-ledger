@@ -185,6 +185,24 @@ target/thumbv8m.main-none-eabihf/{debug,release}/pico-ledger
 
 Once the Pico 2 W boots, it initializes the USB CDC-ACM stack and appears as a serial port (e.g. `/dev/ttyACM0`).
 
+The firmware exposes two USB serial interfaces. One carries logs and the other carries
+the binary PSBT protocol. Probe each interface with the host CLI to find the protocol
+port:
+
+```bash
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  --port /dev/ttyACM1 ping
+```
+
+To send a PSBT, review every page on the OLED and approve it with both buttons:
+
+```bash
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  --port /dev/ttyACM1 sign unsigned.psbt signed.psbt
+```
+
+See [`docs/usb-protocol.md`](docs/usb-protocol.md) for framing and the complete flow.
+
 ### Using `tio` (Recommended)
 ```bash
 tio /dev/ttyACM0
