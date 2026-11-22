@@ -2,13 +2,15 @@ use buoyant::render_target::RenderTarget;
 use buoyant::{
     app::App, primitives::Size, render_target::EmbeddedGraphicsRenderTarget, view::prelude::*,
 };
+use core::sync::atomic::Ordering;
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Timer};
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*};
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
-use crate::signals::MESSAGE_QUEUE;
+use crate::signals::{DISPLAY_FRAME, DISPLAY_READY, MESSAGE_QUEUE};
+use pico_ledger_core::signals::{Message, PhysicalButton};
 use pico_ledger_core::ui::screens::init_screen::InitScreen;
 use pico_ledger_core::ui::state::AppModel;
 
@@ -47,11 +49,35 @@ pub async fn display_task(i2c: I2c<'static, I2C0, embassy_rp::i2c::Async>) {
             app.render_animated(&mut target, &BinaryColor::On);
             // Clear for the next frame
             if let Ok(()) = target.display_mut().flush() {
+                DISPLAY_FRAME
+                    .try_update(Ordering::AcqRel, Ordering::Acquire, |frame| {
+                        Some(frame.saturating_add(1))
+                    })
+                    .ok();
+                DISPLAY_READY.store(true, Ordering::Release);
             } else {
+                DISPLAY_READY.store(false, Ordering::Release);
                 log_warn!("Failed to flush display buffer");
             }
         }
-        let msg = MESSAGE_QUEUE.receive().await;
+        let msg = match MESSAGE_QUEUE.receive().await {
+            Message::PhysicalButton { button, frame } => {
+                let current = DISPLAY_FRAME.load(Ordering::Acquire);
+                if !DISPLAY_READY.load(Ordering::Acquire)
+                    || current == 0
+                    || current == u32::MAX
+                    || frame != current
+                {
+                    continue;
+                }
+                match button {
+                    PhysicalButton::Left => Message::Back,
+                    PhysicalButton::Right => Message::Next,
+                    PhysicalButton::Both => Message::Select,
+                }
+            }
+            message => message,
+        };
         app.state_mut().update(msg, &mut FirmwareEffects);
     }
 }

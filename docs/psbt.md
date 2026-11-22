@@ -1,19 +1,20 @@
 # PSBT signing policy and integration boundary
 
-## Status: tested core, not an end-to-end hardware signer
+## Status: tested core with end-to-end hardware wiring
 
 The portable core imports binary PSBT v0, validates the entire transaction, produces a
 review, and returns a PSBT containing DER-encoded ECDSA partial signatures with the
 SIGHASH_ALL byte. It does not finalize, extract, broadcast, or send a raw signature.
 
-**Firmware signing is intentionally unavailable.** The old `Wallet::sign(tx_hash, index)`,
-`SignerMessage::Sign`, dummy Home-screen transaction, and signature logging have been
-removed. USB is currently a logger, not a PSBT transport. No host message, navigation
-button, or boolean supplied over USB can authorize signing.
+Firmware receives bounded binary PSBT requests on a dedicated USB CDC-ACM interface,
+retains the exact validated transaction while the OLED displays every review page, and
+signs only after the final two-button physical confirmation. The old blind
+`Wallet::sign(tx_hash, index)` path remains removed. Host messages cannot authorize a
+signature.
 
-This is a backend milestone, NOT a claim that the cold wallet can safely sign on-device.
-Use test funds only. Hardware review, physical confirmation, cancellation/locking races,
-RAM/stack measurement, and real coordinator interoperability remain release blockers.
+This is still not a production-readiness claim. Use test funds only. Physical hardware
+verification, RAM/stack measurement, persistence hardening, and real coordinator
+interoperability remain release blockers.
 
 ## Accepted policy
 
@@ -87,7 +88,7 @@ are validated before the callback, and the returned result is atomic (never a pa
 returned failure).
 
 Both methods require **32 fresh cryptographically secure random bytes** from the trusted
-caller on every invocation (RP2350 TRNG in any future firmware integration, an OS CSPRNG
+caller on every invocation (the RP2350 TRNG in firmware, an OS CSPRNG
 on a host). They consume and clear the caller's buffer even on error. Do not use fixed
 bytes, transaction data, wallet-derived material, or randomness supplied by the remote
 coordinator. Fixed seeds in host tests are test-only; the core cannot assess entropy quality.
@@ -109,23 +110,12 @@ Do not expose this API as a remote RPC with a caller-controlled approval flag. A
 review from `review_psbt` is not authorization: signing always reviews its own validated
 transaction, so a trusted approver must inspect that callback's exact argument.
 
-### Required follow-up before firmware wiring
+### Remaining release validation
 
-1. Bounded binary transport with backpressure, deterministic cancellation, timeout, and
-   safe handling of concurrent/queued imports. Do not reuse the USB logging interface
-   as an implicit approval channel.
-2. Private pending-transaction state in the signer; immutable binding of all PSBT bytes,
-   the displayed review, and a one-shot request identity. No public confirm-by-hash API.
-3. Paginate every destination's **entire** address and satoshi amount, change and network
-   labels, totals, absolute fee, and transaction locktime/RBF/sequence information.
-   No ellipses, auto-confirm, or skipped output pages; suspicious fees need clear warnings.
-4. Fresh, deliberate physical confirmation only after every review page, plus explicit
-   rejection. A host message, stale button event, or normal Home navigation is insufficient.
-5. Lock, disconnect, replacement, timeout, or rejection must destroy pending approval.
-   Test those races and request replay; do not let a later unlock revive old approval.
-6. Measure peak parser/secp256k1 heap and stack use on RP2350; enforce an input budget
+1. Measure peak parser/secp256k1 heap and stack use on RP2350; enforce an input budget
    compatible with the real firmware heap. Cross-building alone does not prove fit.
-7. Hardware button/display verification and interoperability with real testnet PSBTs
+2. Verify button/display behavior and USB disconnect/cancellation races on physical hardware.
+3. Test interoperability with real testnet PSBTs
    from a coordinator configured with full previous transactions and this exact policy.
 
 ## Verification

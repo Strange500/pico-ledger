@@ -18,6 +18,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run portable core unit tests
         run: cargo test --locked -p pico-ledger-core --target x86_64-unknown-linux-gnu
+      - name: Run host CLI unit tests
+        run: cargo test --locked -p pico-ledger-cli --target x86_64-unknown-linux-gnu
 
   core-lint:
     name: Core Clippy (Host)
@@ -30,19 +32,19 @@ jobs:
       - run: cargo clippy --locked -p pico-ledger-core --target x86_64-unknown-linux-gnu --all-targets -- -D warnings
 
   building:
-    name: Firmware Build (${{ matrix.os }}, ${{ matrix.rust }})
+    # libsecp256k1 contains C code. Building the bare-metal ARM target therefore
+    # needs an ELF cross-compiler, which the Linux/Nix toolchain supplies. Apple
+    # clang and MSVC produce host-format objects and cannot satisfy that link.
+    name: Firmware Build (Linux, ${{ matrix.rust }})
     continue-on-error: ${{ matrix.experimental || false }}
     strategy:
+      fail-fast: false
       matrix:
         rust: [stable, nightly]
         include:
           - rust: nightly
             experimental: true
-        os:
-          - ubuntu-latest
-          - macOS-latest
-          - windows-latest
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master

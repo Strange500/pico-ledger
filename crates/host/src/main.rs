@@ -1,0 +1,220 @@
+use pico_ledger_core::{
+    psbt::MAX_PSBT_BYTES,
+    transport::{Header, Kind, HEADER_LEN},
+};
+use std::{
+    env, fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
+    process::ExitCode,
+    time::Duration,
+};
+
+mod psbt_builder;
+
+const REQUEST_ID: u16 = 1;
+
+fn usage(program: &str) {
+    eprintln!("Usage:");
+    eprintln!("  {program} --port <serial-port> ping");
+    eprintln!("  {program} --port <serial-port> export-descriptor <wallet.desc>");
+    eprintln!("  {program} --port <serial-port> sign <input.psbt> [output.psbt]");
+    eprintln!("  {program} address <wallet.desc> <chain> <index>");
+    eprintln!("  {program} test-fixture <output-directory>");
+    eprintln!("  {program} make-psbt <wallet.desc> <previous-tx.hex> <vout> <input-index>");
+    eprintln!("    <recipient> <amount-sat> <fee-sat> <change-index> <output.psbt>");
+}
+
+fn write_new(path: PathBuf, bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs::OpenOptions;
+
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(bytes)?;
+    Ok(())
+}
+
+fn send(
+    port_name: &str,
+    kind: Kind,
+    payload: &[u8],
+) -> Result<(Header, Vec<u8>), Box<dyn std::error::Error>> {
+    let payload_len = u32::try_from(payload.len()).map_err(|_| "Payload too large")?;
+    let mut port = serialport::new(port_name, 115_200)
+        .timeout(Duration::from_secs(300))
+        .open()?;
+    port.write_all(
+        &Header {
+            kind,
+            request_id: REQUEST_ID,
+            payload_len,
+        }
+        .encode(),
+    )?;
+    port.flush()?;
+
+    if kind == Kind::SignPsbt {
+        let (ready, ready_payload) = read_response(&mut *port)?;
+        if ready.kind == Kind::Error {
+            return Err(String::from_utf8_lossy(&ready_payload).into_owned().into());
+        }
+        if ready.request_id != REQUEST_ID || ready.kind != Kind::Ready || !ready_payload.is_empty()
+        {
+            return Err("Device did not accept the PSBT payload".into());
+        }
+        port.write_all(payload)?;
+        port.flush()?;
+    }
+
+    read_response(&mut *port)
+}
+
+fn read_response(
+    port: &mut dyn serialport::SerialPort,
+) -> Result<(Header, Vec<u8>), Box<dyn std::error::Error>> {
+    let mut encoded_header = [0; HEADER_LEN];
+    port.read_exact(&mut encoded_header)?;
+    let response = Header::decode(&encoded_header).map_err(io::Error::other)?;
+    if response.request_id != REQUEST_ID {
+        return Err("Mismatched response ID".into());
+    }
+    let response_len = usize::try_from(response.payload_len)?;
+    if response_len > MAX_PSBT_BYTES {
+        return Err("Device response exceeds the protocol limit".into());
+    }
+    let mut response_payload = vec![0; response_len];
+    port.read_exact(&mut response_payload)?;
+    Ok((response, response_payload))
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+    if args.get(1).is_some_and(|command| command == "test-fixture") {
+        if args.len() != 3 {
+            usage(&args[0]);
+            return Err("Invalid test-fixture arguments".into());
+        }
+        let fixture = psbt_builder::test_fixture()?;
+        let directory = Path::new(&args[2]);
+        fs::create_dir_all(directory)?;
+        write_new(directory.join("wallet.desc"), fixture.descriptor.as_bytes())?;
+        write_new(
+            directory.join("previous-tx.hex"),
+            fixture.previous_transaction_hex.as_bytes(),
+        )?;
+        write_new(directory.join("unsigned.psbt"), &fixture.psbt)?;
+        let manifest = format!(
+            "UNSAFE deterministic test fixture - NEVER send funds to these addresses\n\
+             device PIN: 00000000\n\
+             funding address (m/84'/1'/0'/0/0): {}\n\
+             recipient address (m/84'/1'/0'/0/1): {}\n\
+             synthetic input: 100000 sat\n\
+             recipient amount: 90000 sat\n\
+             change: 9000 sat\n\
+             fee: 1000 sat\n\
+             The synthetic previous transaction is not on Bitcoin testnet; the signed PSBT cannot be broadcast.\n",
+            fixture.funding_address, fixture.recipient_address
+        );
+        write_new(directory.join("README.txt"), manifest.as_bytes())?;
+        println!(
+            "deterministic test fixture written to {}",
+            directory.display()
+        );
+        println!("device PIN: 00000000");
+        println!("funding address: {}", fixture.funding_address);
+        println!("recipient address: {}", fixture.recipient_address);
+        println!("WARNING: public test keys; never send funds to these addresses");
+        return Ok(());
+    }
+    if args.get(1).is_some_and(|command| command == "address") {
+        if args.len() != 5 {
+            usage(&args[0]);
+            return Err("Invalid address arguments".into());
+        }
+        let descriptor = fs::read_to_string(&args[2])?;
+        println!(
+            "{}",
+            psbt_builder::address(&descriptor, args[3].parse()?, args[4].parse()?)?
+        );
+        return Ok(());
+    }
+    if args.get(1).is_some_and(|command| command == "make-psbt") {
+        if args.len() != 11 {
+            usage(&args[0]);
+            return Err("Invalid make-psbt arguments".into());
+        }
+        let descriptor = fs::read_to_string(&args[2])?;
+        let previous_transaction_hex = fs::read_to_string(&args[3])?;
+        let psbt = psbt_builder::build(&psbt_builder::BuildRequest {
+            descriptor: &descriptor,
+            previous_transaction_hex: &previous_transaction_hex,
+            vout: args[4].parse()?,
+            input_index: args[5].parse()?,
+            recipient: &args[6],
+            amount_sat: args[7].parse()?,
+            fee_sat: args[8].parse()?,
+            change_index: args[9].parse()?,
+        })?;
+        fs::write(&args[10], psbt)?;
+        println!("unsigned PSBT written to {}", args[10]);
+        return Ok(());
+    }
+    if args.len() < 4 || args[1] != "--port" {
+        usage(args.first().map_or("pico-ledger-cli", String::as_str));
+        return Err("Invalid arguments".into());
+    }
+    let port = &args[2];
+    match args[3].as_str() {
+        "ping" if args.len() == 4 => {
+            let (header, payload) = send(port, Kind::Ping, &[])?;
+            if header.kind != Kind::Pong || !payload.is_empty() {
+                return Err("Unexpected ping response".into());
+            }
+            println!("pico-ledger protocol v1 is ready");
+        }
+        "export-descriptor" if args.len() == 5 => {
+            let (header, descriptor) = send(port, Kind::ExportDescriptor, &[])?;
+            if header.kind == Kind::Error {
+                return Err(String::from_utf8_lossy(&descriptor).into_owned().into());
+            }
+            if header.kind != Kind::Descriptor {
+                return Err("Unexpected descriptor response".into());
+            }
+            core::str::from_utf8(&descriptor)?;
+            fs::write(&args[4], descriptor)?;
+            println!("watch-only descriptor written to {}", args[4]);
+        }
+        "sign" if (5..=6).contains(&args.len()) => {
+            let input = fs::read(&args[4])?;
+            if input.len() > MAX_PSBT_BYTES {
+                return Err(format!("PSBT exceeds {MAX_PSBT_BYTES} bytes").into());
+            }
+            let (header, payload) = send(port, Kind::SignPsbt, &input)?;
+            if header.kind == Kind::Error {
+                return Err(String::from_utf8_lossy(&payload).into_owned().into());
+            }
+            if header.kind != Kind::SignedPsbt {
+                return Err("Unexpected signing response".into());
+            }
+            let output = args
+                .get(5)
+                .map_or_else(|| Path::new("signed.psbt"), Path::new);
+            fs::write(output, payload)?;
+            println!("signed PSBT written to {}", output.display());
+        }
+        _ => {
+            usage(&args[0]);
+            return Err("Invalid arguments".into());
+        }
+    }
+    Ok(())
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
