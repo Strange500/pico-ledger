@@ -5,6 +5,11 @@ connector. Use a USB data cable. The first serial interface is intended for logs
 the second for the PSBT protocol. Operating systems may assign device names in a
 different order, so use the `ping` command to identify the protocol interface.
 
+For a no-funds, reproducible hardware walkthrough, use the repository's explicitly
+unsafe deterministic firmware and fixture generator described in
+[`README.md`](../README.md#deterministic-hardware-test-mode). The generated PSBT exercises
+this complete transport and signing protocol but cannot be broadcast.
+
 ```bash
 cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
   --port /dev/ttyACM1 ping

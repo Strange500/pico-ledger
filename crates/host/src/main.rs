@@ -5,7 +5,7 @@ use pico_ledger_core::{
 use std::{
     env, fs,
     io::{self, Write},
-    path::Path,
+    path::{Path, PathBuf},
     process::ExitCode,
     time::Duration,
 };
@@ -20,8 +20,17 @@ fn usage(program: &str) {
     eprintln!("  {program} --port <serial-port> export-descriptor <wallet.desc>");
     eprintln!("  {program} --port <serial-port> sign <input.psbt> [output.psbt]");
     eprintln!("  {program} address <wallet.desc> <chain> <index>");
+    eprintln!("  {program} test-fixture <output-directory>");
     eprintln!("  {program} make-psbt <wallet.desc> <previous-tx.hex> <vout> <input-index>");
     eprintln!("    <recipient> <amount-sat> <fee-sat> <change-index> <output.psbt>");
+}
+
+fn write_new(path: PathBuf, bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs::OpenOptions;
+
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(bytes)?;
+    Ok(())
 }
 
 fn send(
@@ -79,6 +88,43 @@ fn read_response(
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
+    if args.get(1).is_some_and(|command| command == "test-fixture") {
+        if args.len() != 3 {
+            usage(&args[0]);
+            return Err("Invalid test-fixture arguments".into());
+        }
+        let fixture = psbt_builder::test_fixture()?;
+        let directory = Path::new(&args[2]);
+        fs::create_dir_all(directory)?;
+        write_new(directory.join("wallet.desc"), fixture.descriptor.as_bytes())?;
+        write_new(
+            directory.join("previous-tx.hex"),
+            fixture.previous_transaction_hex.as_bytes(),
+        )?;
+        write_new(directory.join("unsigned.psbt"), &fixture.psbt)?;
+        let manifest = format!(
+            "UNSAFE deterministic test fixture - NEVER send funds to these addresses\n\
+             device PIN: 00000000\n\
+             funding address (m/84'/1'/0'/0/0): {}\n\
+             recipient address (m/84'/1'/0'/0/1): {}\n\
+             synthetic input: 100000 sat\n\
+             recipient amount: 90000 sat\n\
+             change: 9000 sat\n\
+             fee: 1000 sat\n\
+             The synthetic previous transaction is not on Bitcoin testnet; the signed PSBT cannot be broadcast.\n",
+            fixture.funding_address, fixture.recipient_address
+        );
+        write_new(directory.join("README.txt"), manifest.as_bytes())?;
+        println!(
+            "deterministic test fixture written to {}",
+            directory.display()
+        );
+        println!("device PIN: 00000000");
+        println!("funding address: {}", fixture.funding_address);
+        println!("recipient address: {}", fixture.recipient_address);
+        println!("WARNING: public test keys; never send funds to these addresses");
+        return Ok(());
+    }
     if args.get(1).is_some_and(|command| command == "address") {
         if args.len() != 5 {
             usage(&args[0]);

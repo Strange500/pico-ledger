@@ -8,6 +8,16 @@ use crate::signals::Message;
 use crate::ui::screens::password_creation_screen::PasswordCreationScreen;
 use crate::ui::state::AppModel;
 
+#[cfg(not(feature = "test-mode"))]
+const TITLE: &str = "Bip39 Seed Generator";
+#[cfg(feature = "test-mode")]
+const TITLE: &str = "UNSAFE TEST MODE";
+
+#[cfg(not(feature = "test-mode"))]
+const INSTRUCTIONS: &str = "Press left to generate a new seed phrase";
+#[cfg(feature = "test-mode")]
+const INSTRUCTIONS: &str = "Public keys! PIN 00000000. Never fund.";
+
 pub struct InitScreen;
 
 impl InitScreen {
@@ -17,9 +27,9 @@ impl InitScreen {
 
     pub fn view(&self) -> impl View<BinaryColor, AppModel> {
         VStack::new((
-            Text::new("Bip39 Seed Generator", &FONT_6X10),
+            Text::new(TITLE, &FONT_6X10),
             Spacer::default(),
-            Text::new("Press left to generate a new seed phrase", &FONT_6X10),
+            Text::new(INSTRUCTIONS, &FONT_6X10),
         ))
         .padding(Edges::Horizontal, 4)
         .padding(Edges::Vertical, 2)

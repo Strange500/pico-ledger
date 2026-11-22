@@ -11,6 +11,11 @@ use zeroize::{Zeroize, Zeroizing};
 static SALT: &[u8] = b"pico-ledger-salt";
 static NETWORK: bitcoin::network::Network = bitcoin::network::Network::Testnet;
 
+/// Public, deterministic entropy used only by the explicitly unsafe firmware test mode.
+pub const TEST_MODE_ENTROPY: [u8; 32] = [0; 32];
+/// Public passphrase/PIN used only by the explicitly unsafe firmware test mode.
+pub const TEST_MODE_PASSWORD: [&str; 8] = ["0"; 8];
+
 /// Owns a backend key without exposing Copy/Clone. Cleanup also runs on early return.
 /// rust-bitcoin/secp256k1 internal copies and compiler spills remain outside this guard.
 pub(crate) struct SecretXpriv(pub(crate) Xpriv);

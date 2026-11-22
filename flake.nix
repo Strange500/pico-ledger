@@ -106,7 +106,7 @@
           export PATH="${pkgs.lib.makeBinPath [toolchain pkgs.llvmPackages.clang-unwrapped pkgs.flip-link pkgs.picotool pkgs.util-linux pkgs.coreutils]}:$PATH"
 
           echo "== 1. Building release firmware =="
-          cargo build --release --target thumbv8m.main-none-eabihf
+          cargo build --release --target thumbv8m.main-none-eabihf "$@"
 
           echo "== 2. Converting ELF to RP2350 UF2 =="
           ELF_PATH="target/thumbv8m.main-none-eabihf/release/pico-ledger"
@@ -167,7 +167,7 @@
           set -euo pipefail
           export PATH="${pkgs.lib.makeBinPath [flash-script watch-script]}:$PATH"
 
-          flash-pico
+          flash-pico "$@"
           echo ""
           watch-logs
         '';

@@ -4,6 +4,8 @@ use crate::signals::{
 use embassy_rp::peripherals::TRNG;
 use embassy_rp::trng::Trng;
 use pico_ledger_core::wallet::{PreparedPsbt, Wallet};
+#[cfg(feature = "test-mode")]
+use pico_ledger_core::wallet::{TEST_MODE_ENTROPY, TEST_MODE_PASSWORD};
 
 type PendingDescriptor = Option<(u16, alloc::string::String)>;
 
@@ -127,6 +129,8 @@ async fn complete_descriptor_export(
 
 #[embassy_executor::task]
 pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
+    #[cfg(feature = "test-mode")]
+    log_warn!("UNSAFE TEST MODE: deterministic public wallet; never fund it");
     let mut wallet = Wallet::default();
     let mut pending = None;
     let mut pending_descriptor = None;
@@ -140,6 +144,11 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                 let mut nonce = [0; 12];
                 trng.fill_bytes(&mut entropy).await;
                 trng.fill_bytes(&mut nonce).await;
+                #[cfg(feature = "test-mode")]
+                let (mut entropy, password) = {
+                    let _ = password;
+                    (TEST_MODE_ENTROPY, TEST_MODE_PASSWORD)
+                };
                 match wallet.generate(&mut entropy, &password, nonce) {
                     Ok(words) => {
                         MESSAGE_QUEUE
@@ -169,9 +178,12 @@ pub async fn signer_task(mut trng: Trng<'static, TRNG>) -> ! {
                 }
             }
             SignerMessage::CheckPassword { password } => {
-                MESSAGE_QUEUE
-                    .send(Message::PasswordChecked(wallet.unlock(&password).is_ok()))
-                    .await;
+                #[cfg(not(feature = "test-mode"))]
+                let valid = wallet.unlock(&password).is_ok();
+                #[cfg(feature = "test-mode")]
+                let valid =
+                    password == TEST_MODE_PASSWORD && wallet.unlock(&TEST_MODE_PASSWORD).is_ok();
+                MESSAGE_QUEUE.send(Message::PasswordChecked(valid)).await;
             }
             SignerMessage::ReviewPsbt { request_id, bytes } => {
                 review_psbt(request_id, bytes, &wallet, &mut trng, &mut pending).await;

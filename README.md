@@ -13,7 +13,7 @@ Bare-metal Bitcoin hardware wallet firmware for the **Raspberry Pi Pico 2 W** (R
 - **Live USB Serial Logging**: Exposes a USB CDC-ACM virtual COM port (`/dev/ttyACM0`) through `embassy-usb-logger` for real-time diagnostics.
 - **SWD RTT Logging**: Simultaneously streams logs over SWD via `defmt-rtt` when using a debug probe like `probe-rs`.
 - **Portable Core**: Host-tested wallet logic and UI state shared with the firmware.
-- **PSBT v0 Backend**: Strict testnet BIP84/P2WPKH validation, transaction review, and partial signing. **Device signing remains disabled pending physical confirmation UI**; see [policy and integration blockers](docs/psbt.md).
+- **PSBT v0 Backend**: Strict testnet BIP84/P2WPKH validation, on-device transaction review, physical confirmation, and partial signing.
 - **Reproducible Nix Environment**: Complete Nix flake providing `picotool`, `tio`, `probe-rs`, `flip-link`, Wokwi simulation, and cross-compilation toolchains.
 
 ---
@@ -130,6 +130,53 @@ cargo fmt --all -- --check
 
 A desktop UI simulator is not included in this workspace. Physical I/O, timing
 and hardware randomness still require hardware validation.
+
+### Deterministic hardware test mode
+
+The opt-in `test-mode` feature makes every Pico use the same public entropy and the
+fixed PIN `00000000`. It exists only to exercise the complete USB PSBT flow from a
+fresh clone. **Its keys are public: never send mainnet or testnet funds to its addresses.**
+The OLED displays `UNSAFE TEST MODE` so this build cannot be mistaken for a real wallet.
+
+Build and flash that firmware from the Nix development shell:
+
+```bash
+nix develop
+flash-pico --features test-mode
+```
+
+On the Pico, press the right button to start setup. Select digit `0` eight times with
+both buttons, then advance through the deterministic seed phrase with the right button.
+The wallet is now unlocked with this fixed receive address:
+
+```text
+tb1qmkeqzr4mxnhpzayzwgxllg6jjs5w5ej0kyhwnp
+```
+
+In another terminal, generate the matching descriptor, synthetic previous transaction,
+and unsigned PSBT. The destination directory may be new, but the command refuses to
+overwrite fixture files that already exist:
+
+```bash
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  test-fixture test-flow
+```
+
+Find the protocol interface by trying the two `/dev/ttyACM*` ports, then send the fixture:
+
+```bash
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  --port /dev/ttyACM1 ping
+
+cargo run -p pico-ledger-cli --target x86_64-unknown-linux-gnu -- \
+  --port /dev/ttyACM1 sign test-flow/unsigned.psbt test-flow/signed.psbt
+```
+
+Review the transaction on the OLED. Use right to advance and press both buttons only on
+the final confirmation screen. A successful response proves the deterministic wallet
+validated and signed the complete PSBT over USB. The fixture's 100,000-sat input is a
+synthetic transaction that does not exist on Bitcoin testnet, so `signed.psbt` cannot be
+broadcast. Delete the test firmware and flash a normal build before testing a real wallet.
 
 ---
 

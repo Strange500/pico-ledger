@@ -11,6 +11,14 @@ use bitcoin::{
 };
 use std::{error::Error, str::FromStr};
 
+pub struct TestFixture {
+    pub descriptor: String,
+    pub previous_transaction_hex: String,
+    pub funding_address: String,
+    pub recipient_address: String,
+    pub psbt: Vec<u8>,
+}
+
 pub struct BuildRequest<'a> {
     pub descriptor: &'a str,
     pub previous_transaction_hex: &'a str,
@@ -182,6 +190,54 @@ pub fn build(request: &BuildRequest<'_>) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(psbt.serialize())
 }
 
+/// Builds a synthetic, non-broadcastable transaction for exercising the complete
+/// deterministic test-mode firmware flow without obtaining testnet coins first.
+pub fn test_fixture() -> Result<TestFixture, Box<dyn Error>> {
+    use pico_ledger_core::wallet::{Wallet, TEST_MODE_ENTROPY, TEST_MODE_PASSWORD};
+
+    let mut wallet = Wallet::default();
+    let mut entropy = TEST_MODE_ENTROPY;
+    wallet.generate(&mut entropy, &TEST_MODE_PASSWORD, [0; 12])?;
+    let descriptor = wallet.account_descriptor(&mut [1; 32])?;
+    let parsed = parse_descriptor(&descriptor)?;
+    let (_, funding_script, _) = derived_key(&parsed, 0, 0)?;
+    let funding_address = Address::from_script(&funding_script, Network::Testnet)?.to_string();
+    let (_, recipient_script, _) = derived_key(&parsed, 0, 1)?;
+    let recipient_address = Address::from_script(&recipient_script, Network::Testnet)?.to_string();
+    let previous = Transaction {
+        version: Version::ONE,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::null(),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::new(),
+        }],
+        output: vec![TxOut {
+            value: Amount::from_sat(100_000),
+            script_pubkey: funding_script,
+        }],
+    };
+    let previous_transaction_hex = bitcoin::consensus::encode::serialize_hex(&previous);
+    let psbt = build(&BuildRequest {
+        descriptor: &descriptor,
+        previous_transaction_hex: &previous_transaction_hex,
+        vout: 0,
+        input_index: 0,
+        recipient: &recipient_address,
+        amount_sat: 90_000,
+        fee_sat: 1_000,
+        change_index: 0,
+    })?;
+    Ok(TestFixture {
+        descriptor,
+        previous_transaction_hex,
+        funding_address,
+        recipient_address,
+        psbt,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,5 +296,42 @@ mod tests {
                 .unwrap()
                 .to_string()
         );
+    }
+
+    #[test]
+    fn deterministic_test_fixture_is_signable() {
+        let fixture = test_fixture().unwrap();
+        let mut wallet = pico_ledger_core::wallet::Wallet::default();
+        let mut entropy = pico_ledger_core::wallet::TEST_MODE_ENTROPY;
+        wallet
+            .generate(
+                &mut entropy,
+                &pico_ledger_core::wallet::TEST_MODE_PASSWORD,
+                [0; 12],
+            )
+            .unwrap();
+
+        assert_eq!(
+            address(&fixture.descriptor, 0, 0).unwrap(),
+            fixture.funding_address
+        );
+        assert_eq!(
+            fixture.funding_address,
+            "tb1qmkeqzr4mxnhpzayzwgxllg6jjs5w5ej0kyhwnp"
+        );
+        assert_eq!(
+            address(&fixture.descriptor, 0, 1).unwrap(),
+            fixture.recipient_address
+        );
+        assert_eq!(
+            fixture.recipient_address,
+            "tb1qwnf2mr9y246q5ttkjyy5y302era3frexsn7s26"
+        );
+        let review = wallet.review_psbt(&mut [2; 32], &fixture.psbt).unwrap();
+        assert_eq!(review.total_input_sat, 100_000);
+        assert_eq!(review.fee_sat, 1_000);
+        assert!(wallet
+            .sign_psbt(&mut [3; 32], &fixture.psbt, |_| true)
+            .is_ok());
     }
 }

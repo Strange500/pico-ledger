@@ -15,6 +15,11 @@ use crate::{
     ui::state::AppModel,
 };
 
+#[cfg(not(feature = "test-mode"))]
+const HOME_HEADER: &str = "Pico Ledger";
+#[cfg(feature = "test-mode")]
+const HOME_HEADER: &str = "UNSAFE TEST MODE";
+
 struct ReviewPage {
     title: String,
     body: String,
@@ -118,7 +123,7 @@ impl HomeScreen {
     pub fn view(&self) -> impl View<BinaryColor, AppModel> {
         let (header, title, body, controls) = match self.phase {
             Phase::Idle | Phase::Signing => (
-                "Pico Ledger".into(),
+                HOME_HEADER.into(),
                 "USB PSBT".into(),
                 self.status.into(),
                 String::new(),
